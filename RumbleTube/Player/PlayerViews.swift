@@ -1,0 +1,345 @@
+import AVKit
+import SwiftUI
+
+// MARK: - Native video surface (PiP, AirPlay, fullscreen, speed menu)
+
+struct VideoSurface: UIViewControllerRepresentable {
+    let player: AVPlayer
+
+    func makeCoordinator() -> Coordinator { Coordinator(player: player) }
+
+    func makeUIViewController(context: Context) -> AVPlayerViewController {
+        let vc = AVPlayerViewController()
+        vc.player = player
+        vc.allowsPictureInPicturePlayback = true
+        vc.canStartPictureInPictureAutomaticallyFromInline = true
+        vc.updatesNowPlayingInfoCenter = false
+        vc.entersFullScreenWhenPlaybackBegins = false
+        vc.exitsFullScreenWhenPlaybackEnds = true
+        vc.videoGravity = .resizeAspect
+        vc.delegate = context.coordinator
+        context.coordinator.controller = vc
+        return vc
+    }
+
+    func updateUIViewController(_ vc: AVPlayerViewController, context: Context) {
+        if !context.coordinator.backgrounded, vc.player !== player { vc.player = player }
+    }
+
+    /// Detaches the player while in the background so audio keeps going (unless PiP is showing).
+    final class Coordinator: NSObject, AVPlayerViewControllerDelegate {
+        weak var controller: AVPlayerViewController?
+        let player: AVPlayer
+        var pip = false
+        var backgrounded = false
+        private var tokens: [NSObjectProtocol] = []
+
+        init(player: AVPlayer) {
+            self.player = player
+            super.init()
+            let nc = NotificationCenter.default
+            tokens.append(nc.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
+                guard let self, !self.pip else { return }
+                self.backgrounded = true
+                self.controller?.player = nil
+            })
+            tokens.append(nc.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
+                guard let self else { return }
+                self.backgrounded = false
+                self.controller?.player = self.player
+            })
+        }
+
+        deinit { tokens.forEach { NotificationCenter.default.removeObserver($0) } }
+
+        func playerViewControllerWillStartPictureInPicture(_ playerViewController: AVPlayerViewController) { pip = true }
+        func playerViewControllerDidStopPictureInPicture(_ playerViewController: AVPlayerViewController) { pip = false }
+        func playerViewController(_ playerViewController: AVPlayerViewController,
+                                  restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void) {
+            Task { @MainActor in PlayerModel.shared.expanded = true }
+            completionHandler(true)
+        }
+    }
+}
+
+// MARK: - Segment bar under the video
+
+struct SegmentBar: View {
+    let segments: [SkipSegment]
+    let duration: Double
+    let currentTime: Double
+    let settings: SkipSettings
+
+    var body: some View {
+        GeometryReader { g in
+            ZStack(alignment: .leading) {
+                Rectangle().fill(Color.white.opacity(0.12))
+                if duration > 0 {
+                    Rectangle().fill(Color.white.opacity(0.35))
+                        .frame(width: g.size.width * min(1, max(0, currentTime / duration)))
+                    ForEach(segments.filter { settings.action(for: $0.category) != .off }) { s in
+                        Rectangle().fill(s.category.color)
+                            .frame(width: max(2, g.size.width * (s.end - s.start) / duration))
+                            .offset(x: g.size.width * s.start / duration)
+                    }
+                }
+            }
+        }
+        .frame(height: 4)
+    }
+}
+
+// MARK: - Full player screen
+
+struct PlayerScreen: View {
+    @EnvironmentObject var player: PlayerModel
+    @EnvironmentObject var library: LibraryStore
+    @EnvironmentObject var router: Router
+    @State private var showSkipPanel = false
+    @State private var expandedDescription = false
+    @State private var more: [VideoItem] = []
+    @State private var moreFor: String?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            topBar
+            videoArea
+            SegmentBar(segments: player.segments, duration: player.duration, currentTime: player.currentTime,
+                       settings: library.data.skip)
+            ScrollView { details.padding(.bottom, 40) }
+        }
+        .background(Color(.systemBackground))
+        .sheet(isPresented: $showSkipPanel) {
+            SkipPanel().environmentObject(player).environmentObject(library)
+        }
+        .task(id: player.detail?.channel?.path) { await loadMore() }
+    }
+
+    private var topBar: some View {
+        HStack {
+            Button { player.expanded = false } label: {
+                Image(systemName: "chevron.down").font(.title3.weight(.semibold)).frame(width: 44, height: 36)
+            }
+            Spacer()
+            Capsule().fill(Color.secondary.opacity(0.4)).frame(width: 40, height: 5)
+            Spacer()
+            Button { player.close() } label: {
+                Image(systemName: "xmark").font(.title3.weight(.semibold)).frame(width: 44, height: 36)
+            }
+        }
+        .foregroundStyle(.primary)
+        .padding(.horizontal, 6)
+    }
+
+    private var videoArea: some View {
+        ZStack {
+            Color.black
+            if let error = player.error {
+                VStack(spacing: 12) {
+                    Image(systemName: "exclamationmark.triangle").font(.largeTitle)
+                    Text(error).font(.footnote).multilineTextAlignment(.center).padding(.horizontal)
+                    Button("Retry") { player.retry() }.buttonStyle(.borderedProminent).tint(.rumbleGreen)
+                }.foregroundStyle(.white)
+            } else if player.loading || player.stream == nil {
+                ProgressView().tint(.white)
+            } else {
+                VideoSurface(player: player.player)
+            }
+        }
+        .aspectRatio(16 / 9, contentMode: .fit)
+        .overlay(alignment: .bottomLeading) { noticePill.padding(10).padding(.bottom, 44) }
+        .overlay(alignment: .bottomTrailing) { skipButton.padding(10).padding(.bottom, 44) }
+        .animation(.easeInOut(duration: 0.2), value: player.notice)
+        .animation(.easeInOut(duration: 0.2), value: player.buttonSegment)
+    }
+
+    @ViewBuilder private var noticePill: some View {
+        if let seg = player.notice {
+            HStack(spacing: 8) {
+                Circle().fill(seg.category.color).frame(width: 8, height: 8)
+                Text("Skipped \(seg.category.name.lowercased())").font(.caption.weight(.medium))
+                Button("Undo") { player.unskip(seg) }.font(.caption.weight(.bold)).foregroundStyle(Color.rumbleGreen)
+                Button { player.dismissNotice() } label: { Image(systemName: "xmark").font(.caption2) }
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 10).padding(.vertical, 7)
+            .background(.ultraThinMaterial, in: Capsule())
+            .environment(\.colorScheme, .dark)
+            .transition(.opacity)
+        }
+    }
+
+    @ViewBuilder private var skipButton: some View {
+        if let seg = player.buttonSegment {
+            Button { player.skip(seg) } label: {
+                HStack(spacing: 6) {
+                    Circle().fill(seg.category.color).frame(width: 8, height: 8)
+                    Text("Skip \(seg.category.name.lowercased())").font(.caption.weight(.bold))
+                    Image(systemName: "forward.end.fill").font(.caption)
+                }
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                .background(.ultraThinMaterial, in: Capsule())
+                .overlay(Capsule().stroke(Color.white.opacity(0.3)))
+            }
+            .foregroundStyle(.white)
+            .environment(\.colorScheme, .dark)
+            .transition(.opacity)
+        }
+    }
+
+    // MARK: details
+
+    @ViewBuilder private var details: some View {
+        let item = player.item
+        let d = player.detail
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(d?.title ?? item?.title ?? "").font(.headline)
+                HStack(spacing: 6) {
+                    if d?.liveStatus == .isLive {
+                        Text("LIVE").font(.caption2.weight(.bold)).padding(.horizontal, 5).padding(.vertical, 2)
+                            .background(Color.red, in: RoundedRectangle(cornerRadius: 3)).foregroundStyle(.white)
+                    }
+                    Text(meta(d, item)).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            actions(item, d)
+            if let c = d?.channel ?? item?.channel { channelRow(c, followers: d?.channelFollowers) }
+            if let desc = d?.description, !desc.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(desc).font(.footnote).lineLimit(expandedDescription ? nil : 3)
+                    Button(expandedDescription ? "Show less" : "Show more") { expandedDescription.toggle() }
+                        .font(.footnote.weight(.semibold))
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+            }
+            if !more.isEmpty {
+                Text("More from \(d?.channel?.name ?? "this channel")").font(.subheadline.weight(.semibold)).padding(.top, 4)
+                ForEach(more.filter { $0.id != item?.id }.prefix(12)) { v in
+                    Button { player.play(v) } label: { VideoRow(item: v) }.buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 12)
+    }
+
+    private func meta(_ d: VideoDetail?, _ item: VideoItem?) -> String {
+        var parts: [String] = []
+        if let v = d?.views { parts.append("\(CountFormat.short(v)) views") } else if let v = item?.views { parts.append("\(v) views") }
+        if let p = d?.published ?? item?.publishedDate { parts.append(DateParsing.relative(p)) }
+        return parts.joined(separator: " · ")
+    }
+
+    private func actions(_ item: VideoItem?, _ d: VideoDetail?) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                if let likes = d?.likes {
+                    pill(Label(likes, systemImage: "hand.thumbsup"))
+                }
+                Button { showSkipPanel = true } label: {
+                    pill(Label(player.segments.isEmpty ? "RumbleSkip" : "RumbleSkip · \(player.segments.count)",
+                               systemImage: "forward.end.alt"), highlight: !player.segments.isEmpty)
+                }
+                if let item {
+                    Button { library.data.toggleWatchLater(item) } label: {
+                        pill(Label("Save", systemImage: library.data.inWatchLater(item.id) ? "clock.fill" : "clock"))
+                    }
+                }
+                if let d, d.streams.count > 1 {
+                    Menu {
+                        ForEach(d.streams) { s in
+                            Button { player.select(s) } label: {
+                                if s == player.stream { Label(s.label, systemImage: "checkmark") } else { Text(s.label) }
+                            }
+                        }
+                    } label: {
+                        pill(Label(player.stream?.label ?? "Quality", systemImage: "slider.horizontal.3"))
+                    }
+                }
+                if let s = item?.url, let url = URL(string: s) {
+                    ShareLink(item: url) { pill(Label("Share", systemImage: "square.and.arrow.up")) }
+                }
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func pill(_ label: Label<Text, Image>, highlight: Bool = false) -> some View {
+        label.font(.footnote.weight(.semibold))
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            .background(highlight ? Color.rumbleGreen.opacity(0.25) : Color.secondary.opacity(0.15), in: Capsule())
+            .foregroundStyle(highlight ? Color.rumbleGreen : Color.primary)
+    }
+
+    private func channelRow(_ c: ChannelRef, followers: String?) -> some View {
+        HStack(spacing: 10) {
+            Button { router.open(c) } label: {
+                HStack(spacing: 10) {
+                    ChannelAvatar(name: c.name, url: c.avatar, size: 40)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(c.name).font(.subheadline.weight(.semibold)).lineLimit(1)
+                        if let f = followers { Text("\(f) followers").font(.caption).foregroundStyle(.secondary) }
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            Spacer()
+            let following = library.data.isFollowing(c.path)
+            Button(following ? "Following" : "Follow") { library.data.toggleFollow(c) }
+                .buttonStyle(.borderedProminent)
+                .tint(following ? Color.secondary.opacity(0.3) : Color.rumbleGreen)
+                .foregroundStyle(following ? Color.primary : Color.black)
+                .font(.subheadline.weight(.semibold))
+        }
+    }
+
+    private func loadMore() async {
+        guard let path = player.detail?.channel?.path, moreFor != path else { return }
+        moreFor = path
+        more = []
+        if let page = try? await RumbleService.shared.channel(path) { more = page.items }
+    }
+}
+
+// MARK: - Mini player
+
+struct MiniPlayer: View {
+    @EnvironmentObject var player: PlayerModel
+
+    var body: some View {
+        if let item = player.item, !player.expanded {
+            VStack(spacing: 0) {
+                GeometryReader { g in
+                    Rectangle().fill(Color.rumbleGreen)
+                        .frame(width: player.duration > 0 ? g.size.width * min(1, player.currentTime / player.duration) : 0)
+                }
+                .frame(height: 2)
+                HStack(spacing: 10) {
+                    Thumbnail(item: item).frame(width: 96).clipShape(RoundedRectangle(cornerRadius: 6))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(player.detail?.title ?? item.title).font(.footnote.weight(.semibold)).lineLimit(1)
+                        Text(player.detail?.channel?.name ?? item.channelName ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    Spacer(minLength: 4)
+                    Button { player.togglePlay() } label: {
+                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").font(.title3).frame(width: 40, height: 40)
+                    }
+                    Button { player.close() } label: {
+                        Image(systemName: "xmark").font(.body.weight(.semibold)).frame(width: 36, height: 40)
+                    }
+                }
+                .padding(.horizontal, 10).padding(.vertical, 6)
+            }
+            .background(.regularMaterial)
+            .foregroundStyle(.primary)
+            .contentShape(Rectangle())
+            .onTapGesture { player.expanded = true }
+            .gesture(DragGesture(minimumDistance: 20).onEnded { v in
+                if v.translation.height < -30 { player.expanded = true }
+            })
+        }
+    }
+}
