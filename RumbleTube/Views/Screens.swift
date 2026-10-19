@@ -243,7 +243,12 @@ struct LibraryView: View {
             }
         }
         .navigationTitle("Library")
-        .toolbar { if section == .later { EditButton() } }
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) { if section == .later { EditButton() } }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                NavigationLink { SettingsView() } label: { Image(systemName: "gearshape") }
+            }
+        }
     }
 
     private var isEmpty: Bool {
@@ -273,6 +278,7 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
+            AccountSettingsSection()
             Section {
                 NavigationLink {
                     SkipSettingsView()

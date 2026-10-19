@@ -95,7 +95,9 @@ struct PlayerScreen: View {
     @EnvironmentObject var player: PlayerModel
     @EnvironmentObject var library: LibraryStore
     @EnvironmentObject var router: Router
+    @EnvironmentObject var account: AccountStore
     @State private var showSkipPanel = false
+    @State private var showComments = false
     @State private var expandedDescription = false
     @State private var more: [VideoItem] = []
     @State private var moreFor: String?
@@ -111,6 +113,19 @@ struct PlayerScreen: View {
         .background(Color(.systemBackground))
         .sheet(isPresented: $showSkipPanel) {
             SkipPanel().environmentObject(player).environmentObject(library)
+        }
+        .sheet(isPresented: $showComments) {
+            if let item = player.item {
+                NavigationStack {
+                    CommentsScreen(target: CommentTarget(
+                        video: item,
+                        listID: player.detail.map { $0.embedId.hasPrefix("v") ? String($0.embedId.dropFirst()) : $0.embedId },
+                        videoNumericID: nil, focusCommentID: nil))
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showComments = false } } }
+                }
+                .environmentObject(account).environmentObject(player).environmentObject(library).environmentObject(router)
+                .presentationDetents([.medium, .large])
+            }
         }
         .task(id: player.detail?.channel?.path) { await loadMore() }
     }
@@ -238,6 +253,9 @@ struct PlayerScreen: View {
             HStack(spacing: 8) {
                 if let likes = d?.likes {
                     pill(Label(likes, systemImage: "hand.thumbsup"))
+                }
+                Button { showComments = true } label: {
+                    pill(Label("Comments", systemImage: "text.bubble"))
                 }
                 Button { showSkipPanel = true } label: {
                     pill(Label(player.segments.isEmpty ? "RumbleSkip" : "RumbleSkip · \(player.segments.count)",

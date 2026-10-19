@@ -6,8 +6,11 @@ import PackageDescription
 let package = Package(
     name: "RumbleCore",
     platforms: [.iOS(.v16), .macOS(.v13)],
+    dependencies: [
+        .package(url: "https://github.com/scinfu/SwiftSoup.git", from: "2.7.0"),
+    ],
     targets: [
-        .target(name: "RumbleCore", path: "RumbleTube/Core"),
+        .target(name: "RumbleCore", dependencies: ["SwiftSoup"], path: "RumbleTube/Core"),
         .testTarget(name: "RumbleCoreTests", dependencies: ["RumbleCore"], path: "Tests/RumbleCoreTests",
                     resources: [.copy("Fixtures")]),
     ],

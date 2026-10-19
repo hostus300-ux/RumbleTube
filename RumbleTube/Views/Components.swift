@@ -16,7 +16,8 @@ extension SkipCategory {
 
 @MainActor
 final class Router: ObservableObject {
-    enum Tab: Hashable { case home, explore, search, library, settings }
+    static let shared = Router()
+    enum Tab: Hashable { case home, explore, search, inbox, library, settings }
     @Published var tab: Tab = .home
     @Published var paths: [Tab: NavigationPath] = [:]
 
