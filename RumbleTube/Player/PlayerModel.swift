@@ -200,7 +200,7 @@ final class PlayerModel: ObservableObject {
             .store(in: &itemObservers)
         rate = library.data.prefs.defaultRate
         player.defaultRate = Float(rate)
-        if autoplay { resume() }
+        if autoplay { self.resume() }
     }
 
     // MARK: - Gestures & speed

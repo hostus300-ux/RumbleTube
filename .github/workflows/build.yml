@@ -29,7 +29,7 @@ jobs:
           xcodebuild -project RumbleTube.xcodeproj -scheme RumbleTube -configuration Release \
             -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build 2>&1 | tee build.log | grep -E "error:|warning: unre|BUILD (SUCCEEDED|FAILED)" || true
-          test -d build/Build/Products/Release-iphoneos/RumbleTube.app
+          test -f build/Build/Products/Release-iphoneos/RumbleTube.app/RumbleTube
 
       - name: Show compile errors
         if: failure()
