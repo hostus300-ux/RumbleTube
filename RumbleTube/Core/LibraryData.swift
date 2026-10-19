@@ -22,8 +22,26 @@ struct LibraryData: Codable, Equatable {
     var localSegments: [String: [SkipSegment]] = [:]
     var localLinks: [String: YouTubeLink] = [:]
     var skipStats = SkipStats()
+    var prefs = AppPreferences()
 
     static let historyLimit = 500
+
+    init() {}
+
+    // Tolerant decoding so new fields in updates never wipe the user's library.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        follows = (try? c.decodeIfPresent([ChannelRef].self, forKey: .follows)) ?? []
+        watchLater = (try? c.decodeIfPresent([VideoItem].self, forKey: .watchLater)) ?? []
+        history = (try? c.decodeIfPresent([HistoryEntry].self, forKey: .history)) ?? []
+        positions = (try? c.decodeIfPresent([String: Double].self, forKey: .positions)) ?? [:]
+        preferredHeight = try? c.decodeIfPresent(Int.self, forKey: .preferredHeight)
+        skip = (try? c.decodeIfPresent(SkipSettings.self, forKey: .skip)) ?? SkipSettings()
+        localSegments = (try? c.decodeIfPresent([String: [SkipSegment]].self, forKey: .localSegments)) ?? [:]
+        localLinks = (try? c.decodeIfPresent([String: YouTubeLink].self, forKey: .localLinks)) ?? [:]
+        skipStats = (try? c.decodeIfPresent(SkipStats.self, forKey: .skipStats)) ?? SkipStats()
+        prefs = (try? c.decodeIfPresent(AppPreferences.self, forKey: .prefs)) ?? AppPreferences()
+    }
 
     func isFollowing(_ path: String) -> Bool { follows.contains { $0.id == path.lowercased() } }
 

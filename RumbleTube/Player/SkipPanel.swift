@@ -102,7 +102,7 @@ struct SkipPanel: View {
             }
             HStack {
                 Button("Preview") {
-                    if let s = TimeFormat.parseClock(startText) { player.seek(to: max(0, s - 2)); player.player.play() }
+                    if let s = TimeFormat.parseClock(startText) { player.seek(to: max(0, s - 2)); player.resume() }
                 }
                 .buttonStyle(.bordered)
                 Spacer()

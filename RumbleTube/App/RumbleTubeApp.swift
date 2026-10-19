@@ -5,6 +5,8 @@ import UserNotifications
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        AppAudio.browsing()   // never interrupt the user's music/podcasts just by opening the app
+        UIDevice.current.beginGeneratingDeviceOrientationNotifications()
         UNUserNotificationCenter.current().delegate = self
         BGTaskScheduler.shared.register(forTaskWithIdentifier: AccountStore.refreshTaskID, using: nil) { task in
             let work = Task { @MainActor in
@@ -14,6 +16,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             task.expirationHandler = { work.cancel() }
         }
         return true
+    }
+
+    func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
+        OrientationLock.mask
     }
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
@@ -51,12 +57,12 @@ struct RumbleTubeApp: App {
                 .environmentObject(player)
                 .environmentObject(router)
                 .environmentObject(account)
-                .tint(.rumbleGreen)
                 .onOpenURL { router.handle($0) }
         }
         .onChange(of: phase) { p in
             if p == .active { account.startPolling() }
             else {
+                ShortsModel.shared.pauseForMainPlayer()
                 player.savePosition(); library.saveNow()
                 if account.alertsEnabled { AccountStore.scheduleRefresh() }
             }
@@ -69,34 +75,65 @@ struct RootView: View {
     @EnvironmentObject var player: PlayerModel
     @EnvironmentObject var library: LibraryStore
     @EnvironmentObject var account: AccountStore
+    @StateObject private var shorts = ShortsModel.shared
+
+    private var prefs: AppPreferences { library.data.prefs }
+    private var scheme: ColorScheme? { prefs.theme == .system ? nil : (prefs.theme == .dark ? .dark : .light) }
 
     var body: some View {
+        let tabs = prefs.visibleTabs
         TabView(selection: $router.tab) {
-            tab(.home, "Home", "house") { HomeView() }
-            tab(.explore, "Explore", "safari") { ExploreView() }
-            tab(.search, "Search", "magnifyingglass") { SearchView() }
-            tab(.inbox, "Inbox", "bell") { InboxView() }
-                .badge(account.hasUnread ? 1 : 0)
-            tab(.library, "Library", "books.vertical") { LibraryView() }
+            ForEach(tabs) { t in
+                tab(t)
+                    .badge(t == .inbox && account.hasUnread ? 1 : 0)
+            }
         }
+        .environmentObject(shorts)
+        .tint(Color(hex: prefs.accent.hex))
+        .preferredColorScheme(scheme)
+        .id(prefs.accent)   // rebuild so every accent-coloured view picks up a new accent
+        .onAppear {
+            Theme.accentHex = prefs.accent.hex
+            if !tabs.contains(router.tab) { router.tab = tabs.first ?? .library }
+        }
+        .onChange(of: prefs.accent) { a in Theme.accentHex = a.hex }
+        .onChange(of: tabs) { t in if !t.contains(router.tab) { router.tab = t.first ?? .library } }
+        .onChange(of: router.tab) { t in updateShorts(tab: t, expanded: player.expanded) }
+        .onChange(of: player.expanded) { e in updateShorts(tab: router.tab, expanded: e) }
         .sheet(isPresented: $player.expanded) {
             PlayerScreen()
                 .environmentObject(player)
                 .environmentObject(library)
                 .environmentObject(router)
                 .environmentObject(account)
-                .tint(.rumbleGreen)
+                .environmentObject(shorts)
+                .tint(Color(hex: prefs.accent.hex))
+                .preferredColorScheme(scheme)
         }
     }
 
-    private func tab<V: View>(_ t: Router.Tab, _ title: String, _ icon: String, @ViewBuilder _ content: () -> V) -> some View {
+    private func updateShorts(tab: AppTab, expanded: Bool) {
+        if tab == .shorts && !expanded { shorts.activate() } else { shorts.deactivate() }
+    }
+
+    @ViewBuilder private func content(_ t: AppTab) -> some View {
+        switch t {
+        case .home: HomeView()
+        case .shorts: ShortsView()
+        case .search: SearchView()
+        case .inbox: InboxView()
+        case .library: LibraryView()
+        }
+    }
+
+    private func tab(_ t: AppTab) -> some View {
         NavigationStack(path: router.path(t)) {
-            content()
+            content(t)
                 .navigationDestination(for: ChannelRef.self) { ChannelView(channel: $0) }
                 .navigationDestination(for: CommentTarget.self) { CommentsScreen(target: $0) }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) { MiniPlayer() }
-        .tabItem { Label(title, systemImage: icon) }
+        .safeAreaInset(edge: .bottom, spacing: 0) { if t != .shorts { MiniPlayer() } }
+        .tabItem { Label(t.title, systemImage: t.icon) }
         .tag(t)
     }
 }

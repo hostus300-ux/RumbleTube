@@ -9,12 +9,23 @@
   var CHAN = /^\/(c|user)\/([^/?#]+)/i;
   var DUR = /^\d{1,2}(:\d{2}){1,2}$/;
 
+  // Shorts live only in the Shorts tab, so skip anything inside a shorts shelf.
+  function inShorts(el) {
+    for (var n = el; n; n = n.parentNode || n.host) {
+      if (n.nodeType === 11) { n = n.host; if (!n) break; }
+      if (n.nodeType !== 1) continue;
+      var tag = n.tagName.toLowerCase();
+      if (tag.indexOf('shorts') !== -1 || /(^|\s|-)shorts(\s|-|_|$)/i.test(n.getAttribute('class') || '')) return true;
+    }
+    return false;
+  }
+
   function roots() {
     var out = [document];
     (function walk(root) {
       var all = root.querySelectorAll('*');
       for (var i = 0; i < all.length; i++) {
-        if (all[i].shadowRoot) { out.push(all[i].shadowRoot); walk(all[i].shadowRoot); }
+        if (all[i].shadowRoot && !inShorts(all[i])) { out.push(all[i].shadowRoot); walk(all[i].shadowRoot); }
       }
     })(document);
     return out;
@@ -166,7 +177,7 @@
     var links = rs[r].querySelectorAll('a[href]');
     for (var i = 0; i < links.length; i++) {
       var vid = videoIdOf(links[i]);
-      if (!vid || seen[vid.id]) continue;
+      if (!vid || seen[vid.id] || inShorts(links[i])) continue;
       var card = cardFor(links[i]);
       var item = extractCard(card, links[i], vid);
       if (!item.title) continue;

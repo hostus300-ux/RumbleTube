@@ -1,4 +1,5 @@
 import AVFoundation
+import AVKit
 import Combine
 import MediaPlayer
 import SwiftUI
@@ -18,6 +19,11 @@ final class PlayerModel: ObservableObject {
     @Published private(set) var isPlaying = false
     @Published private(set) var currentTime: Double = 0
     @Published private(set) var duration: Double = 0
+    @Published var fullscreen = false
+    @Published var zoomFill = false
+    @Published private(set) var rate: Double = 1
+    @Published private(set) var boosting = false
+    var pip: AVPictureInPictureController?
 
     // RumbleSkip state
     @Published private(set) var segments: [SkipSegment] = []
@@ -42,7 +48,6 @@ final class PlayerModel: ObservableObject {
     private var library: LibraryStore { LibraryStore.shared }
 
     private init() {
-        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
         player.allowsExternalPlayback = true
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.25, preferredTimescale: 600),
                                                       queue: .main) { [weak self] t in
@@ -54,6 +59,8 @@ final class PlayerModel: ObservableObject {
             .sink { [weak self] status in
                 guard let self else { return }
                 self.isPlaying = status != .paused
+                // Native controls (or PiP) started playback: make sure we hold the audio for background play.
+                if status == .playing, !AppAudio.ownsAudio, self.player.currentItem != nil { AppAudio.takeOver() }
                 self.updateNowPlaying()
             }
             .store(in: &cancellables)
@@ -68,7 +75,7 @@ final class PlayerModel: ObservableObject {
     func play(_ newItem: VideoItem) {
         if item?.id == newItem.id, error == nil {
             expanded = true
-            if !isPlaying { player.play() }
+            if !isPlaying { resume() }
             return
         }
         savePosition()
@@ -77,7 +84,8 @@ final class PlayerModel: ObservableObject {
         currentTime = 0; duration = 0; artwork = nil
         resetSkipState()
         player.replaceCurrentItem(with: nil)
-        try? AVAudioSession.sharedInstance().setActive(true)
+        ShortsModel.shared.pauseForMainPlayer()
+        AppAudio.takeOver()
 
         loadTask?.cancel()
         loadTask = Task { [weak self] in
@@ -119,12 +127,22 @@ final class PlayerModel: ObservableObject {
         loadTask?.cancel()
         player.pause()
         player.replaceCurrentItem(with: nil)
-        item = nil; detail = nil; error = nil; expanded = false; stream = nil
+        item = nil; detail = nil; error = nil; expanded = false; stream = nil; fullscreen = false; boosting = false
+        pip = nil
         resetSkipState()
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        AppAudio.release()
     }
 
-    func togglePlay() { isPlaying ? player.pause() : player.play() }
+    func togglePlay() { isPlaying ? player.pause() : resume() }
+
+    /// Start/continue playback, taking the audio back if it was handed off.
+    func resume() {
+        guard player.currentItem != nil else { return }
+        ShortsModel.shared.pauseForMainPlayer()
+        AppAudio.takeOver()
+        player.play()
+    }
 
     func seek(to t: Double) {
         player.seek(to: CMTime(seconds: max(0, t), preferredTimescale: 600))
@@ -173,7 +191,68 @@ final class PlayerModel: ObservableObject {
             pi.seek(to: CMTime(seconds: t, preferredTimescale: 600), completionHandler: nil)
             currentTime = t
         }
-        if autoplay { player.play() }
+        NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime, object: pi)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.savePosition()
+                AppAudio.release()   // finished: let the user's other audio resume
+            }
+            .store(in: &itemObservers)
+        rate = library.data.prefs.defaultRate
+        player.defaultRate = Float(rate)
+        if autoplay { resume() }
+    }
+
+    // MARK: - Gestures & speed
+
+    func seek(by delta: Double) {
+        let t = player.currentTime().seconds + delta
+        seek(to: duration > 0 ? min(t, duration - 0.5) : t)
+    }
+
+    func setRate(_ r: Double) {
+        rate = r
+        library.data.prefs.defaultRate = r
+        player.defaultRate = Float(r)
+        if isPlaying, !boosting { player.rate = Float(r) }
+    }
+
+    func startBoost() {
+        guard player.currentItem != nil, detail?.liveStatus != .isLive else { return }
+        if !isPlaying { resume() }
+        boosting = true
+        player.rate = Float(library.data.prefs.boostRate)
+    }
+
+    func endBoost() {
+        guard boosting else { return }
+        boosting = false
+        if player.rate != 0 { player.rate = Float(rate) }
+    }
+
+    /// Skip the RumbleSkip segment under the playhead (any category that isn't ignored).
+    func skipCurrentSegment() {
+        let t = player.currentTime().seconds
+        if let seg = segments.first(where: { t >= $0.start && t < $0.end && library.data.skip.action(for: $0.category) != .off }) {
+            skip(seg)
+        } else {
+            seek(by: Double(library.data.prefs.seekSeconds))
+        }
+    }
+
+    func perform(_ action: GestureAction) {
+        let secs = Double(library.data.prefs.seekSeconds)
+        switch action {
+        case .none, .speedBoost: break
+        case .seekBack: seek(by: -secs)
+        case .seekForward: seek(by: secs)
+        case .playPause: togglePlay()
+        case .fullscreen: fullscreen.toggle()
+        case .minimize: if fullscreen { fullscreen = false } else { expanded = false }
+        case .close: fullscreen = false; close()
+        case .skipSegment: skipCurrentSegment()
+        case .toggleZoom: zoomFill.toggle()
+        }
     }
 
     // MARK: - Time & skipping
@@ -230,7 +309,7 @@ final class PlayerModel: ObservableObject {
         ignored.insert(seg.uuid)
         seek(to: seg.start)
         rebuildBoundaryObserver()
-        player.play()
+        resume()
     }
 
     private func showNotice(_ seg: SkipSegment) {
@@ -385,7 +464,7 @@ final class PlayerModel: ObservableObject {
     private func setupRemoteCommands() {
         let c = MPRemoteCommandCenter.shared()
         c.playCommand.addTarget { [weak self] _ in
-            Task { @MainActor in self?.player.play() }
+            Task { @MainActor in self?.resume() }
             return .success
         }
         c.pauseCommand.addTarget { [weak self] _ in

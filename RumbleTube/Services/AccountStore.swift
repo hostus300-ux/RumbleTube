@@ -112,8 +112,13 @@ final class AccountStore: ObservableObject {
     }
 
     func vote(commentID: String, vote: Int) async throws {
+        try await voteContent(id: commentID, type: 2, vote: vote)
+    }
+
+    /// type 1 = video/short, 2 = comment. vote: 1, -1 or 0 to clear.
+    func voteContent(id: String, type: Int, vote: Int) async throws {
         guard loggedIn else { throw AccountError.notLoggedIn }
-        let (data, code) = try await send(AccountRequests.vote(contentID: commentID, type: 2, vote: vote))
+        let (data, code) = try await send(AccountRequests.vote(contentID: id, type: type, vote: vote))
         guard code == 200 else { throw AccountError.http(code) }
         _ = try AccountRequests.parseResult(data).get()
     }

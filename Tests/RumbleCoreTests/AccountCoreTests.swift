@@ -108,3 +108,24 @@ final class AccountCoreTests: XCTestCase {
         } else { XCTFail() }
     }
 }
+
+final class ShortsCoreTests: XCTestCase {
+    func testShortsFeed() throws {
+        let url = try XCTUnwrap(Bundle.module.url(forResource: "shorts.json", withExtension: nil, subdirectory: "Fixtures"))
+        let page = try ShortsParser.parse(try Data(contentsOf: url))
+        XCTAssertTrue(page.hasMore)
+        XCTAssertEqual(page.items.map(\.id), ["v7aaa01", "v7aaa03"], "items without mp4 dropped; id from relative_url")
+        let s = page.items[0]
+        XCTAssertEqual(s.title, "Short & sweet")
+        XCTAssertEqual(s.numericID, "447767024")
+        XCTAssertEqual(s.commentListID, "7el78w")
+        XCTAssertEqual(s.bestStream?.height, 720)
+        XCTAssertEqual(s.streams.first?.height, 1080)
+        XCTAssertEqual(s.likes, 120); XCTAssertEqual(s.dislikes, 4); XCTAssertEqual(s.myVote, 1)
+        XCTAssertEqual(s.comments, 14)
+        XCTAssertEqual(s.channel?.path, "/c/demoshow")
+        XCTAssertEqual(s.asVideoItem.duration, "1:16")
+        XCTAssertEqual(ShortsParser.request(offset: 20).url?.absoluteString,
+                       "https://rumble.com/service.php?name=shorts.feed&offset=20&limit=10&api=7")
+    }
+}

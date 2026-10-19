@@ -12,6 +12,7 @@ final class RumbleCoreTests: XCTestCase {
         XCTAssertEqual(RumbleURL.videoId(from: "https://rumble.com/v6abc12-some-title.html?e9s=x"), "v6abc12")
         XCTAssertEqual(RumbleURL.videoId(from: "/V4XYZ9-Title.html"), "v4xyz9")
         XCTAssertNil(RumbleURL.videoId(from: "https://rumble.com/c/Redacted"))
+        XCTAssertEqual(RumbleURL.videoId(from: "https://rumble.com/shorts/v7GRK6e"), "v7grk6e")
         XCTAssertEqual(RumbleURL.clean("https://rumble.com/v6abc12-t.html?e9s=src&sci=1"), "https://rumble.com/v6abc12-t.html")
         XCTAssertEqual(RumbleURL.clean("/v6abc12-t.html?x=1"), "https://rumble.com/v6abc12-t.html")
         XCTAssertEqual(RumbleURL.channelPath(from: "https://rumble.com/c/Redacted?e9s=x"), "/c/Redacted")
@@ -169,5 +170,32 @@ final class RumbleCoreTests: XCTestCase {
         XCTAssertNotNil(page.items[0].publishedDate)
         XCTAssertEqual(page.items[0].channel?.path, "/user/R")
         XCTAssertTrue(page.hasNext)
+    }
+
+    func testPreferencesAndMigration() throws {
+        // A 0.2-era library file (no prefs key) must still load with everything intact.
+        let old = #"{"follows":[{"path":"/c/A","name":"A"}],"watchLater":[],"history":[],"positions":{"v1":42},"skip":{"serverURL":"","actions":{},"useYouTubeLinks":true,"showNotice":true,"userID":"abcdefghijklmnop"},"localSegments":{},"localLinks":{},"skipStats":{"skips":3,"secondsSaved":90}}"#
+        let lib = try JSONDecoder().decode(LibraryData.self, from: Data(old.utf8))
+        XCTAssertEqual(lib.follows.first?.path, "/c/A")
+        XCTAssertEqual(lib.positions["v1"], 42)
+        XCTAssertEqual(lib.skipStats.skips, 3)
+        XCTAssertEqual(lib.prefs, AppPreferences())
+
+        var p = AppPreferences()
+        XCTAssertEqual(p.visibleTabs, [.home, .shorts, .search, .inbox, .library])
+        p.tabs = [TabSetting(tab: .library, enabled: false), TabSetting(tab: .shorts, enabled: false),
+                  TabSetting(tab: .search, enabled: true), TabSetting(tab: .home, enabled: true)]
+        XCTAssertEqual(p.visibleTabs, [.library, .search, .home, .inbox], "library forced on, order kept, missing tab appended")
+        XCTAssertEqual(p.action(for: .doubleTapRight), .seekForward)
+        p.gestures[PlayerGesture.doubleTapRight.rawValue] = .skipSegment
+        XCTAssertEqual(p.action(for: .doubleTapRight), .skipSegment)
+        XCTAssertFalse(PlayerGesture.swipeUp.allowedActions.contains(.speedBoost))
+        XCTAssertTrue(PlayerGesture.longPress.allowedActions.contains(.speedBoost))
+
+        let round = try JSONDecoder().decode(AppPreferences.self, from: try JSONEncoder().encode(p))
+        XCTAssertEqual(round, p)
+        let partial = try JSONDecoder().decode(AppPreferences.self, from: Data(#"{"theme":"dark"}"#.utf8))
+        XCTAssertEqual(partial.theme, .dark)
+        XCTAssertEqual(partial.seekSeconds, 10)
     }
 }

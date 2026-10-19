@@ -1,7 +1,12 @@
 import SwiftUI
 
+/// Current accent (set from preferences; the root view rebuilds when it changes).
+enum Theme {
+    static var accentHex: UInt32 = AccentChoice.green.hex
+}
+
 extension Color {
-    static let rumbleGreen = Color(red: 0x85 / 255, green: 0xC7 / 255, blue: 0x42 / 255)
+    static var rumbleGreen: Color { Color(hex: Theme.accentHex) }
     init(hex: UInt32) {
         self.init(red: Double((hex >> 16) & 0xFF) / 255, green: Double((hex >> 8) & 0xFF) / 255,
                   blue: Double(hex & 0xFF) / 255)
@@ -17,7 +22,7 @@ extension SkipCategory {
 @MainActor
 final class Router: ObservableObject {
     static let shared = Router()
-    enum Tab: Hashable { case home, explore, search, inbox, library, settings }
+    typealias Tab = AppTab
     @Published var tab: Tab = .home
     @Published var paths: [Tab: NavigationPath] = [:]
 

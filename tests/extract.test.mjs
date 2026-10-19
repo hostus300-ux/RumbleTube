@@ -18,6 +18,8 @@ const searchHtml = `<!doctype html><html><body><main><ol>
   ${article('v7h1izc', 'america-is-the-new-rome', 'America Is the New Rome', '1:02:44', 'SomeChannel')}
   <li class="video-listing-entry"><article class="video-item "><a class="video-item--a" href="/v7live01-live-show.html"><div class="video-item--img-wrapper"><img class="video-item--img" src="https://x.rumble.cloud/a.jpg" alt="Live show"></div><span class="video-item--live" data-value="LIVE"></span></a><div class="video-item--info"><h3 class=video-item--title>Live show</h3><address class=video-item--by><a rel=author class="video-item--by-a" href="/c/LiveGuy"><div class=ellipsis-1>LiveGuy</div></a></address></div></article></li>
   </ol>
+  <section class="shorts-shelf"><a href="/v7short1-a-short-on-a-shelf.html"><img src="https://x/s.jpg" alt="Shelf short"><h3>Shelf short</h3></a></section>
+  <rum-shorts-row><a href="/shorts/v7short2"><h3>Short link</h3></a></rum-shorts-row>
   <nav class="flex"><a href="/search/video?q=news&e9s=x">1</a><a href="/search/video?page=2&q=news&e9s=x">2</a><a href="/search/video?page=3&q=news">3</a></nav>
   </main></body></html>`;
 
@@ -58,7 +60,7 @@ let n = 0; const ok = (m) => { n++; console.log('  ✓', m); };
 // ---- search ----
 await page.goto('https://rumble.com/search/video?q=news');
 let r = JSON.parse(await page.evaluate(extract));
-assert.equal(r.items.length, 3);
+assert.equal(r.items.length, 3, 'shorts shelf / shorts links excluded');
 const [a, b, live] = r.items;
 assert.deepEqual(
   { id: a.id, url: a.url, title: a.title, duration: a.duration, channelName: a.channelName, channelPath: a.channelPath, views: a.views, published: a.published },

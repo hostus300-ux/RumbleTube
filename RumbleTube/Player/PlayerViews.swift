@@ -1,67 +1,6 @@
 import AVKit
 import SwiftUI
 
-// MARK: - Native video surface (PiP, AirPlay, fullscreen, speed menu)
-
-struct VideoSurface: UIViewControllerRepresentable {
-    let player: AVPlayer
-
-    func makeCoordinator() -> Coordinator { Coordinator(player: player) }
-
-    func makeUIViewController(context: Context) -> AVPlayerViewController {
-        let vc = AVPlayerViewController()
-        vc.player = player
-        vc.allowsPictureInPicturePlayback = true
-        vc.canStartPictureInPictureAutomaticallyFromInline = true
-        vc.updatesNowPlayingInfoCenter = false
-        vc.entersFullScreenWhenPlaybackBegins = false
-        vc.exitsFullScreenWhenPlaybackEnds = true
-        vc.videoGravity = .resizeAspect
-        vc.delegate = context.coordinator
-        context.coordinator.controller = vc
-        return vc
-    }
-
-    func updateUIViewController(_ vc: AVPlayerViewController, context: Context) {
-        if !context.coordinator.backgrounded, vc.player !== player { vc.player = player }
-    }
-
-    /// Detaches the player while in the background so audio keeps going (unless PiP is showing).
-    final class Coordinator: NSObject, AVPlayerViewControllerDelegate {
-        weak var controller: AVPlayerViewController?
-        let player: AVPlayer
-        var pip = false
-        var backgrounded = false
-        private var tokens: [NSObjectProtocol] = []
-
-        init(player: AVPlayer) {
-            self.player = player
-            super.init()
-            let nc = NotificationCenter.default
-            tokens.append(nc.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
-                guard let self, !self.pip else { return }
-                self.backgrounded = true
-                self.controller?.player = nil
-            })
-            tokens.append(nc.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
-                guard let self else { return }
-                self.backgrounded = false
-                self.controller?.player = self.player
-            })
-        }
-
-        deinit { tokens.forEach { NotificationCenter.default.removeObserver($0) } }
-
-        func playerViewControllerWillStartPictureInPicture(_ playerViewController: AVPlayerViewController) { pip = true }
-        func playerViewControllerDidStopPictureInPicture(_ playerViewController: AVPlayerViewController) { pip = false }
-        func playerViewController(_ playerViewController: AVPlayerViewController,
-                                  restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void) {
-            Task { @MainActor in PlayerModel.shared.expanded = true }
-            completionHandler(true)
-        }
-    }
-}
-
 // MARK: - Segment bar under the video
 
 struct SegmentBar: View {
@@ -104,7 +43,7 @@ struct PlayerScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            topBar
+            Capsule().fill(Color.secondary.opacity(0.4)).frame(width: 40, height: 5).padding(.vertical, 6)
             videoArea
             SegmentBar(segments: player.segments, duration: player.duration, currentTime: player.currentTime,
                        settings: library.data.skip)
@@ -128,78 +67,20 @@ struct PlayerScreen: View {
             }
         }
         .task(id: player.detail?.channel?.path) { await loadMore() }
-    }
-
-    private var topBar: some View {
-        HStack {
-            Button { player.expanded = false } label: {
-                Image(systemName: "chevron.down").font(.title3.weight(.semibold)).frame(width: 44, height: 36)
-            }
-            Spacer()
-            Capsule().fill(Color.secondary.opacity(0.4)).frame(width: 40, height: 5)
-            Spacer()
-            Button { player.close() } label: {
-                Image(systemName: "xmark").font(.title3.weight(.semibold)).frame(width: 44, height: 36)
-            }
+        .fullScreenCover(isPresented: $player.fullscreen) {
+            FullscreenPlayer().environmentObject(player).environmentObject(library)
         }
-        .foregroundStyle(.primary)
-        .padding(.horizontal, 6)
+        .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
+            guard library.data.prefs.rotateToFullscreen, player.stream != nil else { return }
+            let o = UIDevice.current.orientation
+            if o.isLandscape, !player.fullscreen { player.fullscreen = true }
+            else if o == .portrait, player.fullscreen { player.fullscreen = false }
+        }
     }
 
     private var videoArea: some View {
-        ZStack {
-            Color.black
-            if let error = player.error {
-                VStack(spacing: 12) {
-                    Image(systemName: "exclamationmark.triangle").font(.largeTitle)
-                    Text(error).font(.footnote).multilineTextAlignment(.center).padding(.horizontal)
-                    Button("Retry") { player.retry() }.buttonStyle(.borderedProminent).tint(.rumbleGreen)
-                }.foregroundStyle(.white)
-            } else if player.loading || player.stream == nil {
-                ProgressView().tint(.white)
-            } else {
-                VideoSurface(player: player.player)
-            }
-        }
-        .aspectRatio(16 / 9, contentMode: .fit)
-        .overlay(alignment: .bottomLeading) { noticePill.padding(10).padding(.bottom, 44) }
-        .overlay(alignment: .bottomTrailing) { skipButton.padding(10).padding(.bottom, 44) }
-        .animation(.easeInOut(duration: 0.2), value: player.notice)
-        .animation(.easeInOut(duration: 0.2), value: player.buttonSegment)
-    }
-
-    @ViewBuilder private var noticePill: some View {
-        if let seg = player.notice {
-            HStack(spacing: 8) {
-                Circle().fill(seg.category.color).frame(width: 8, height: 8)
-                Text("Skipped \(seg.category.name.lowercased())").font(.caption.weight(.medium))
-                Button("Undo") { player.unskip(seg) }.font(.caption.weight(.bold)).foregroundStyle(Color.rumbleGreen)
-                Button { player.dismissNotice() } label: { Image(systemName: "xmark").font(.caption2) }
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 10).padding(.vertical, 7)
-            .background(.ultraThinMaterial, in: Capsule())
-            .environment(\.colorScheme, .dark)
-            .transition(.opacity)
-        }
-    }
-
-    @ViewBuilder private var skipButton: some View {
-        if let seg = player.buttonSegment {
-            Button { player.skip(seg) } label: {
-                HStack(spacing: 6) {
-                    Circle().fill(seg.category.color).frame(width: 8, height: 8)
-                    Text("Skip \(seg.category.name.lowercased())").font(.caption.weight(.bold))
-                    Image(systemName: "forward.end.fill").font(.caption)
-                }
-                .padding(.horizontal, 12).padding(.vertical, 8)
-                .background(.ultraThinMaterial, in: Capsule())
-                .overlay(Capsule().stroke(Color.white.opacity(0.3)))
-            }
-            .foregroundStyle(.white)
-            .environment(\.colorScheme, .dark)
-            .transition(.opacity)
-        }
+        PlayerStage(isFullscreen: false)
+            .aspectRatio(16 / 9, contentMode: .fit)
     }
 
     // MARK: details

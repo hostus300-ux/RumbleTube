@@ -33,7 +33,7 @@ struct HomeView: View {
                     Text("Your feed is empty").font(.title3.weight(.semibold))
                     Text("Follow channels and their newest videos show up here, newest first.")
                         .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                    Button("Explore Rumble") { router.tab = .explore }.buttonStyle(.borderedProminent).tint(.rumbleGreen)
+                    Button("Explore Rumble") { router.tab = .search }.buttonStyle(.borderedProminent).tint(.rumbleGreen)
                         .foregroundStyle(.black)
                 }
                 .padding(40)
@@ -80,6 +80,7 @@ struct HomeView: View {
 
 struct ExploreView: View {
     @State private var section: ExploreSection = .live
+    var embedded = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -91,7 +92,7 @@ struct ExploreView: View {
             ListingView(model: ListingModel { page in try await RumbleService.shared.explore(section, page: page) })
                 .id(section)
         }
-        .navigationTitle("Explore")
+        .navigationTitle(embedded ? "Search" : "Explore")
     }
 }
 
@@ -118,11 +119,8 @@ struct SearchView: View {
                 .buttonStyle(.borderedProminent).tint(.rumbleGreen).foregroundStyle(.black).padding()
             }
             if submitted.isEmpty {
-                VStack(spacing: 10) {
-                    Image(systemName: "magnifyingglass").font(.system(size: 40)).foregroundStyle(.secondary)
-                    Text("Search Rumble, or paste a rumble.com link.").foregroundStyle(.secondary)
-                }
-                .frame(maxHeight: .infinity)
+                // Nothing searched yet: browse Live / Editor Picks / Latest right here.
+                ExploreView(embedded: true)
             } else {
                 Picker("Sort", selection: $sort) {
                     ForEach(SearchSort.allCases) { Text($0.rawValue).tag($0) }
@@ -134,6 +132,7 @@ struct SearchView: View {
             }
         }
         .navigationTitle("Search")
+        .onChange(of: text) { t in if t.isEmpty { submitted = "" } }
         .searchable(text: $text, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search or paste link")
         .onSubmit(of: .search) {
             let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -276,24 +275,70 @@ struct SettingsView: View {
 
     private let qualities: [(String, Int?)] = [("Auto (adaptive)", nil), ("1080p", 1080), ("720p", 720), ("480p", 480), ("360p", 360)]
 
+    private func pref<T>(_ key: WritableKeyPath<AppPreferences, T>) -> Binding<T> {
+        Binding(get: { library.data.prefs[keyPath: key] }, set: { library.data.prefs[keyPath: key] = $0 })
+    }
+
     var body: some View {
         Form {
             AccountSettingsSection()
-            Section {
-                NavigationLink {
-                    SkipSettingsView()
-                } label: {
-                    Label("RumbleSkip", systemImage: "forward.end.alt")
+
+            Section("Appearance") {
+                Picker("Theme", selection: pref(\.theme)) {
+                    ForEach(ThemeMode.allCases) { Text($0.title).tag($0) }
                 }
-            } footer: {
-                Text("Skip sponsors, intros and more — community segments plus SponsorBlock data for videos also on YouTube.")
+                .pickerStyle(.segmented)
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Accent colour")
+                    HStack(spacing: 12) {
+                        ForEach(AccentChoice.allCases) { a in
+                            Circle().fill(Color(hex: a.hex)).frame(width: 30, height: 30)
+                                .overlay(Circle().stroke(Color.primary, lineWidth: library.data.prefs.accent == a ? 3 : 0).padding(-4))
+                                .onTapGesture { library.data.prefs.accent = a }
+                                .accessibilityLabel(a.title)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
             }
-            Section("Playback") {
+
+            Section {
+                NavigationLink { TabSettingsView() } label: {
+                    LabeledContent("Tabs", value: library.data.prefs.visibleTabs.map(\.title).joined(separator: ", "))
+                }
+            } header: { Text("Layout") } footer: { Text("Turn tabs on or off and drag to reorder them.") }
+
+            Section {
+                NavigationLink { GestureSettingsView() } label: { Label("Gestures", systemImage: "hand.tap") }
+                Picker("Default speed", selection: pref(\.defaultRate)) {
+                    ForEach(AppPreferences.rateChoices, id: \.self) { Text(String(format: "%g×", $0)).tag($0) }
+                }
+                Picker("Rewind / fast-forward", selection: pref(\.seekSeconds)) {
+                    ForEach(AppPreferences.seekChoices, id: \.self) { Text("\($0) seconds").tag($0) }
+                }
                 Picker("Default quality", selection: Binding(get: { library.data.preferredHeight ?? 0 },
                                                              set: { library.data.preferredHeight = $0 == 0 ? nil : $0 })) {
                     ForEach(qualities.indices, id: \.self) { i in Text(qualities[i].0).tag(qualities[i].1 ?? 0) }
                 }
+                Toggle("Rotate phone for fullscreen", isOn: pref(\.rotateToFullscreen))
+            } header: { Text("Player") }
+
+            if library.data.prefs.visibleTabs.contains(.shorts) {
+                Section {
+                    Toggle("Autoplay", isOn: pref(\.autoplayShorts))
+                    Toggle("Start muted if other audio is playing", isOn: pref(\.shortsMutedWhenOtherAudio))
+                } header: { Text("Shorts") } footer: {
+                    Text("Browsing never interrupts music or podcasts from other apps. Audio only switches over when you watch a video or unmute a Short.")
+                }
             }
+
+            Section {
+                NavigationLink { SkipSettingsView() } label: { Label("RumbleSkip", systemImage: "forward.end.alt") }
+                LabeledContent("Rumble ads", value: "None")
+            } header: { Text("Skipping & ads") } footer: {
+                Text("RumbleTube plays videos straight from Rumble's servers, so Rumble's ad player never loads. RumbleSkip handles sponsor reads inside videos.")
+            }
+
             Section("Data") {
                 Button("Clear watch history", role: .destructive) { confirmClear = true }
                     .confirmationDialog("Clear history and resume positions?", isPresented: $confirmClear, titleVisibility: .visible) {
@@ -307,5 +352,80 @@ struct SettingsView: View {
             }
         }
         .navigationTitle("Settings")
+    }
+}
+
+struct TabSettingsView: View {
+    @EnvironmentObject var library: LibraryStore
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(library.data.prefs.normalizedTabs) { t in
+                    HStack {
+                        Label(t.tab.title, systemImage: t.tab.icon)
+                        Spacer()
+                        if t.tab.required {
+                            Text("Always on").font(.caption).foregroundStyle(.secondary)
+                        } else {
+                            Toggle("", isOn: Binding(
+                                get: { t.enabled },
+                                set: { on in
+                                    var tabs = library.data.prefs.normalizedTabs
+                                    if let i = tabs.firstIndex(where: { $0.tab == t.tab }) { tabs[i].enabled = on }
+                                    library.data.prefs.tabs = tabs
+                                }))
+                            .labelsHidden()
+                        }
+                    }
+                }
+                .onMove { from, to in
+                    var tabs = library.data.prefs.normalizedTabs
+                    tabs.move(fromOffsets: from, toOffset: to)
+                    library.data.prefs.tabs = tabs
+                }
+            } footer: {
+                Text("Library holds Settings, so it always stays. Drag the handles to reorder.")
+            }
+            Section {
+                Button("Reset to default") { library.data.prefs.tabs = AppPreferences().tabs }
+            }
+        }
+        .environment(\.editMode, .constant(.active))
+        .navigationTitle("Tabs")
+    }
+}
+
+struct GestureSettingsView: View {
+    @EnvironmentObject var library: LibraryStore
+
+    var body: some View {
+        Form {
+            Section {
+                ForEach(PlayerGesture.allCases) { g in
+                    Picker(g.title, selection: Binding(
+                        get: { library.data.prefs.action(for: g) },
+                        set: { library.data.prefs.gestures[g.rawValue] = $0 })) {
+                        ForEach(g.allowedActions) { Text($0.title).tag($0) }
+                    }
+                }
+            } footer: {
+                Text("Double-taps use the left, middle and right thirds of the video. Single tap shows or hides the controls.")
+            }
+            Section {
+                Picker("Speed boost", selection: Binding(get: { library.data.prefs.boostRate },
+                                                         set: { library.data.prefs.boostRate = $0 })) {
+                    ForEach([1.5, 2.0, 2.5, 3.0], id: \.self) { Text(String(format: "%g×", $0)).tag($0) }
+                }
+                Picker("Rewind / fast-forward", selection: Binding(get: { library.data.prefs.seekSeconds },
+                                                                  set: { library.data.prefs.seekSeconds = $0 })) {
+                    ForEach(AppPreferences.seekChoices, id: \.self) { Text("\($0) seconds").tag($0) }
+                }
+            }
+            Section {
+                Button("Reset to YouTube-style defaults") { library.data.prefs.gestures = [:] }
+            }
+        }
+        .navigationTitle("Gestures")
     }
 }

@@ -111,6 +111,9 @@ enum RumbleURL {
     static func videoId(from string: String) -> String? {
         let path: String
         if let u = URL(string: string), u.host != nil { path = u.path } else { path = string }
+        if let sr = path.range(of: #"^/shorts/v[a-zA-Z0-9]{3,15}"#, options: [.regularExpression, .caseInsensitive]) {
+            return String(path[sr].dropFirst("/shorts/".count)).lowercased()
+        }
         guard let r = path.range(of: #"^/?(v[a-zA-Z0-9]{3,15})-[^?#]*\.html"#, options: [.regularExpression, .caseInsensitive]) else { return nil }
         let match = String(path[r]).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         guard let dash = match.firstIndex(of: "-") else { return nil }
