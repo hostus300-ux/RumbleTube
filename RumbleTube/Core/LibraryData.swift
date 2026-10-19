@@ -23,6 +23,7 @@ struct LibraryData: Codable, Equatable {
     var localLinks: [String: YouTubeLink] = [:]
     var skipStats = SkipStats()
     var prefs = AppPreferences()
+    var autoLinks: [String: AutoLinkRecord] = [:]
 
     static let historyLimit = 500
 
@@ -41,6 +42,14 @@ struct LibraryData: Codable, Equatable {
         localLinks = (try? c.decodeIfPresent([String: YouTubeLink].self, forKey: .localLinks)) ?? [:]
         skipStats = (try? c.decodeIfPresent(SkipStats.self, forKey: .skipStats)) ?? SkipStats()
         prefs = (try? c.decodeIfPresent(AppPreferences.self, forKey: .prefs)) ?? AppPreferences()
+        autoLinks = (try? c.decodeIfPresent([String: AutoLinkRecord].self, forKey: .autoLinks)) ?? [:]
+    }
+
+    mutating func saveAutoLink(_ id: String, _ r: AutoLinkRecord) {
+        autoLinks[id] = r
+        if autoLinks.count > 3000 {   // keep the cache bounded: drop the oldest
+            for k in autoLinks.sorted(by: { $0.value.checkedAt < $1.value.checkedAt }).prefix(500).map(\.key) { autoLinks[k] = nil }
+        }
     }
 
     func isFollowing(_ path: String) -> Bool { follows.contains { $0.id == path.lowercased() } }

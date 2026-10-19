@@ -31,6 +31,8 @@ final class PlayerModel: ObservableObject {
     @Published private(set) var skipStatus = ""
     @Published private(set) var notice: SkipSegment?
     @Published private(set) var buttonSegment: SkipSegment?
+    @Published private(set) var autoMatch: AutoLinkRecord?
+    private static let youtubeSession = URLSession(configuration: .ephemeral)
     private var rawSegments: [SkipSegment] = []
     private var ignored = Set<String>()
     private var skippedOnce = Set<String>()
@@ -325,7 +327,7 @@ final class PlayerModel: ObservableObject {
     func dismissNotice() { notice = nil }
 
     private func resetSkipState() {
-        segments = []; rawSegments = []; links = []; ignored = []; skippedOnce = []
+        segments = []; rawSegments = []; links = []; ignored = []; skippedOnce = []; autoMatch = nil
         notice = nil; buttonSegment = nil; skipStatus = ""
         rebuildBoundaryObserver()
     }
@@ -376,16 +378,65 @@ final class PlayerModel: ObservableObject {
         if let local = library.data.localLinks[vid], !fetchedLinks.contains(where: { $0.youtubeID == local.youtubeID }) {
             fetchedLinks.insert(local, at: 0)
         }
+        var auto: AutoLinkRecord?
         if settings.useYouTubeLinks, let link = fetchedLinks.first {
             do { segs += try await client.fetchSponsorBlock(youtubeID: link.youtubeID, offset: link.offset) }
             catch { errors.append("SponsorBlock unreachable") }
+        } else if settings.useYouTubeLinks, settings.autoMatchYouTube, let d = detail, d.liveStatus != .isLive {
+            // Nobody has linked this video yet: look for its YouTube upload ourselves.
+            skipStatus = "Looking for this video on YouTube…"
+            let (rec, isNew) = await findYouTubeCopy(for: vid, detail: d)
+            auto = rec
+            if !rec.rejected, rec.confidence.usable, let yt = rec.youtubeID {
+                do {
+                    var ytSegs = try await client.fetchSponsorBlock(youtubeID: yt, offset: 0)
+                    if rec.confidence == .likely { ytSegs = ytSegs.map { var s = $0; s.needsConfirm = true; return s } }
+                    segs += ytSegs
+                } catch { errors.append("SponsorBlock unreachable") }
+                // Share confident matches so other users skip the search.
+                if isNew, rec.confidence == .exact, settings.server != nil {
+                    try? await client.shareLink(videoID: vid, youtubeID: yt, offset: 0)
+                }
+            }
         }
         guard item?.id == vid else { return }
+        autoMatch = auto
         rawSegments = segs
         links = fetchedLinks
         skipStatus = ""
         resolveSegments()
         if !errors.isEmpty { skipStatus += " (\(errors.joined(separator: ", ")))" }
+    }
+
+    /// Cached YouTube search → match record (searches at most once per video, re-checks misses after a few days).
+    private func findYouTubeCopy(for vid: String, detail d: VideoDetail) async -> (AutoLinkRecord, Bool) {
+        if let cached = library.data.autoLinks[vid], cached.isFresh() { return (cached, false) }
+        let req = YouTubeMatcher.searchRequest(YouTubeMatcher.query(title: d.title, channel: d.channel?.name))
+        guard let r = try? await Self.youtubeSession.data(for: req),
+              (r.1 as? HTTPURLResponse)?.statusCode == 200 else {
+            return (AutoLinkRecord(confidence: .none, checkedAt: .distantPast), false)   // network trouble: try again next time
+        }
+        let candidates = YouTubeMatcher.parseSearch(String(decoding: r.0, as: UTF8.self))
+        let duration = d.duration ?? (self.duration > 0 ? self.duration : nil)
+        let match = YouTubeMatcher.bestMatch(title: d.title, channel: d.channel?.name, duration: duration, candidates: candidates)
+        let rec = AutoLinkRecord.from(match, rumbleDuration: duration)
+        library.data.saveAutoLink(vid, rec)
+        return (rec, true)
+    }
+
+    /// "Not this video": stop using the automatic match.
+    func rejectAutoMatch() async {
+        guard let vid = item?.id, var rec = library.data.autoLinks[vid] else { return }
+        rec.rejected = true
+        library.data.saveAutoLink(vid, rec)
+        await loadSegments()
+    }
+
+    /// Different edit on YouTube: the user says where Rumble's extra time is, which fixes the offset.
+    func alignAutoMatch(extraAtStart: Bool) async -> String {
+        guard let rec = autoMatch, let yt = rec.youtubeID else { return "" }
+        let offset = extraAtStart ? (rec.lengthDifference ?? 0) : 0
+        return await linkYouTube(yt, offset: offset)
     }
 
     /// Submit to the community server, or save on this device. Returns a message for the user.

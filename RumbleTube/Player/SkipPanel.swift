@@ -137,6 +137,8 @@ struct SkipPanel: View {
                 if !library.data.skip.useYouTubeLinks {
                     Text("Using YouTube data is turned off in settings.").font(.caption).foregroundStyle(.secondary)
                 }
+            } else if let m = player.autoMatch, let yt = m.youtubeID, !m.rejected, m.confidence != .none {
+                autoMatchRows(m, yt)
             } else {
                 TextField("YouTube link or video ID", text: $ytInput).textInputAutocapitalization(.never).autocorrectionDisabled()
                 TextField("Offset in seconds (optional)", text: $ytOffset).keyboardType(.numbersAndPunctuation)
@@ -150,6 +152,34 @@ struct SkipPanel: View {
             Text("Same video on YouTube?")
         } footer: {
             Text("Link the YouTube upload to pull its SponsorBlock skips. Offset = seconds the Rumble version runs ahead (+) or behind (−).")
+        }
+    }
+
+    @ViewBuilder private func autoMatchRows(_ m: AutoLinkRecord, _ yt: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Label(m.confidence == .differentEdit ? "Found on YouTube" : "Matched automatically", systemImage: "wand.and.stars")
+                .font(.subheadline.weight(.semibold))
+            Text(m.youtubeTitle ?? yt).font(.caption).lineLimit(2)
+            Text(matchExplanation(m)).font(.caption).foregroundStyle(.secondary)
+        }
+        if m.confidence == .differentEdit {
+            Button("Rumble's extra time is at the start") { run { await player.alignAutoMatch(extraAtStart: true) } }
+            Button("Rumble's extra time is at the end") { run { await player.alignAutoMatch(extraAtStart: false) } }
+        } else if m.confidence == .likely {
+            Button("Lengths match — auto-skip these") { run { await player.alignAutoMatch(extraAtStart: false) } }
+        }
+        Button("Not this video", role: .destructive) { run { await player.rejectAutoMatch(); return "Won't use that match." } }
+    }
+
+    private func matchExplanation(_ m: AutoLinkRecord) -> String {
+        let d = abs(m.lengthDifference ?? 0)
+        let amount = d >= 120 ? "\(Int(d / 60)) min" : "\(Int(d)) sec"
+        let which = (m.lengthDifference ?? 0) > 0 ? "shorter" : "longer"
+        switch m.confidence {
+        case .exact: return "Same length on both sites — SponsorBlock skips are applied automatically."
+        case .likely: return "YouTube's version is \(amount) \(which), so skips show as buttons instead of skipping on their own."
+        case .differentEdit: return "YouTube's version is \(amount) \(which) (a different edit), so its skip times won't line up until you say where the difference is. Use Preview on a segment to check."
+        case .none: return ""
         }
     }
 
@@ -217,7 +247,11 @@ struct SkipSettingsView: View {
             Section {
                 Toggle("Show “Skipped” notice", isOn: binding(\.showNotice))
                 Toggle("Use SponsorBlock for linked YouTube videos", isOn: binding(\.useYouTubeLinks))
-            } header: { Text("Behaviour") }
+                Toggle("Find YouTube copies automatically", isOn: binding(\.autoMatchYouTube))
+                    .disabled(!library.data.skip.useYouTubeLinks)
+            } header: { Text("Behaviour") } footer: {
+                Text("When a video has no skips yet, RumbleTube searches YouTube for the same title from your phone and uses its SponsorBlock data if the title, channel and length match.")
+            }
 
             Section {
                 TextField("https://rumbleskip-api.you.workers.dev", text: $server)

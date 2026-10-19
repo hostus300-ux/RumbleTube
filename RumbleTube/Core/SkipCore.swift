@@ -65,6 +65,19 @@ struct SkipSettings: Codable, Equatable {
     var useYouTubeLinks: Bool = true
     var showNotice: Bool = true
     var userID: String = SkipSettings.randomID()
+    var autoMatchYouTube: Bool = true
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        serverURL = (try? c.decodeIfPresent(String.self, forKey: .serverURL)) ?? ""
+        actions = (try? c.decodeIfPresent([String: SkipAction].self, forKey: .actions)) ?? [:]
+        useYouTubeLinks = (try? c.decodeIfPresent(Bool.self, forKey: .useYouTubeLinks)) ?? true
+        showNotice = (try? c.decodeIfPresent(Bool.self, forKey: .showNotice)) ?? true
+        userID = (try? c.decodeIfPresent(String.self, forKey: .userID)) ?? SkipSettings.randomID()
+        autoMatchYouTube = (try? c.decodeIfPresent(Bool.self, forKey: .autoMatchYouTube)) ?? true
+    }
 
     func action(for c: SkipCategory) -> SkipAction { actions[c.rawValue] ?? c.defaultAction }
 
@@ -94,6 +107,8 @@ struct SkipSegment: Codable, Hashable, Identifiable {
     var source: SegmentSource
     var votes: Int = 0
     var videoDuration: Double?
+    /// Auto-matched from a YouTube upload whose length isn't identical: offer a button, don't auto-skip.
+    var needsConfirm: Bool? = nil
     var id: String { uuid }
 }
 
@@ -139,15 +154,16 @@ enum SkipEngine {
     static func active(_ segs: [SkipSegment], at t: Double, settings: SkipSettings,
                        ignored: Set<String>) -> (SkipSegment, SkipAction)? {
         for s in segs {
-            let act = settings.action(for: s.category)
+            var act = settings.action(for: s.category)
             if act == .off || ignored.contains(s.uuid) { continue }
+            if act == .skip && s.needsConfirm == true { act = .button }
             if t >= s.start && t < s.end - 0.25 { return (s, act) }
         }
         return nil
     }
 
     static func autoSkipStarts(_ segs: [SkipSegment], settings: SkipSettings, ignored: Set<String>) -> [Double] {
-        segs.filter { settings.action(for: $0.category) == .skip && !ignored.contains($0.uuid) }.map(\.start)
+        segs.filter { settings.action(for: $0.category) == .skip && $0.needsConfirm != true && !ignored.contains($0.uuid) }.map(\.start)
     }
 
     static func parseYouTubeID(_ input: String) -> String? {

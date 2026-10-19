@@ -129,3 +129,66 @@ final class ShortsCoreTests: XCTestCase {
                        "https://rumble.com/service.php?name=shorts.feed&offset=20&limit=10&api=7")
     }
 }
+
+final class YouTubeMatchTests: XCTestCase {
+    func page(_ name: String) throws -> [YouTubeCandidate] {
+        let url = try XCTUnwrap(Bundle.module.url(forResource: name, withExtension: nil, subdirectory: "Fixtures"))
+        return YouTubeMatcher.parseSearch(try String(contentsOf: url))
+    }
+
+    // Real YouTube results captured Oct 2026.
+    func testSameEditIsExact() throws {
+        let c = try page("yt-crowder.html")
+        XCTAssertFalse(c.isEmpty)
+        let m = YouTubeMatcher.bestMatch(
+            title: "The History of the U.S. Navy: American Masterclass with Historian David Barton | Louder With Crowder",
+            channel: "Steven CrowderVerified", duration: TimeFormat.parseClock("12:05"), candidates: c)
+        XCTAssertEqual(m?.confidence, .exact)
+        XCTAssertEqual(m?.candidate.videoID, "OsOA8gWprTQ")
+    }
+
+    func testReuploadByAnotherChannelIsRejected() throws {
+        let c = try page("yt-reupload.html")
+        XCTAssertGreaterThan(c.count, 3, "real Benny Johnson results to choose from")
+        let m = YouTubeMatcher.bestMatch(title: "Benny Johnson 🚩 Are you sitting down? This is massive.",
+                                         channel: "galacticstorm", duration: TimeFormat.parseClock("1:56"), candidates: c)
+        XCTAssertNil(m, "a clip re-uploaded by someone else must not borrow the original's segments")
+    }
+
+    func testLongerLiveVersionIsDifferentEdit() throws {
+        let m = YouTubeMatcher.bestMatch(title: "Ilhan Omar PHONE SEIZED, Trump Wants To DEPORT HER | Timcast IRL",
+                                         channel: "TimcastIRLVerified", duration: TimeFormat.parseClock("2:42:09"),
+                                         candidates: try page("yt-timcast.html"))
+        XCTAssertEqual(m?.confidence, .differentEdit)
+        XCTAssertFalse(m!.confidence.usable)
+        let rec = AutoLinkRecord.from(m, rumbleDuration: TimeFormat.parseClock("2:42:09"))
+        XCTAssertEqual(rec.lengthDifference!, 2204, accuracy: 2)
+    }
+
+    func testRules() {
+        XCTAssertEqual(YouTubeMatcher.confidence(0.95, 0.9, 2, 600), .exact)
+        XCTAssertEqual(YouTubeMatcher.confidence(0.7, 0.8, 10, 600), .likely)
+        XCTAssertEqual(YouTubeMatcher.confidence(0.95, 0.9, 400, 6000), .differentEdit)
+        XCTAssertEqual(YouTubeMatcher.confidence(0.5, 1.0, 1, 600), .none, "same channel, different video")
+        XCTAssertEqual(YouTubeMatcher.confidence(0.95, 0.2, 1, 600), .exact, "identical title & length despite a renamed channel")
+        XCTAssertEqual(YouTubeMatcher.confidence(0.95, 0.9, nil, 600), .none, "never match without lengths")
+        XCTAssertEqual(YouTubeMatcher.cleanChannel("@MurTechVerified"), "MurTech")
+        XCTAssertEqual(YouTubeMatcher.query(title: "Benny Johnson 🚩 Are you sitting down?", channel: "galacticstorm"),
+                       "Benny Johnson Are you sitting down? galacticstorm")
+        XCTAssertEqual(YouTubeMatcher.query(title: "X | Timcast IRL", channel: "Timcast IRL"), "X | Timcast IRL")
+    }
+
+    func testConfirmOnlySegmentsShowButton() {
+        var settings = SkipSettings()
+        settings.actions = [:]
+        let s = SkipSegment(uuid: "yt:a", start: 10, end: 20, category: .sponsor, source: .youtube, votes: 1,
+                            videoDuration: 600, needsConfirm: true)
+        XCTAssertEqual(SkipEngine.active([s], at: 12, settings: settings, ignored: [])?.1, .button)
+        XCTAssertTrue(SkipEngine.autoSkipStarts([s], settings: settings, ignored: []).isEmpty)
+        // old saved settings without the new key keep the server URL
+        let old = #"{"serverURL":"https://x.workers.dev","actions":{},"useYouTubeLinks":true,"showNotice":true,"userID":"abcdefghijklmnopq"}"#
+        let decoded = try! JSONDecoder().decode(SkipSettings.self, from: Data(old.utf8))
+        XCTAssertEqual(decoded.serverURL, "https://x.workers.dev")
+        XCTAssertTrue(decoded.autoMatchYouTube)
+    }
+}
