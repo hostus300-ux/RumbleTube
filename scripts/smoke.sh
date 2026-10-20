@@ -16,17 +16,20 @@ xcrun simctl ui "$DEV" appearance dark || true
 xcrun simctl install "$DEV" "$APP"
 
 failed=0
+reports() { find ~/Library/Logs/DiagnosticReports -iname '*RumbleTube*' 2>/dev/null | wc -l | tr -d ' '; }
 for screen in home shorts discover my-feed account search inbox settings; do
   xcrun simctl terminate "$DEV" "$BUNDLE" >/dev/null 2>&1 || true
-  PID=$(xcrun simctl launch "$DEV" "$BUNDLE" -launchTab "$screen" -smokeTest YES 2>/dev/null | awk '{print $NF}')
+  before=$(reports)
+  xcrun simctl launch "$DEV" "$BUNDLE" -launchTab "$screen" -smokeTest YES >/dev/null 2>&1
   sleep 14
   xcrun simctl io "$DEV" screenshot "$OUT/$screen.png" >/dev/null 2>&1 || true
-  if [ -n "$PID" ] && xcrun simctl spawn "$DEV" ps -p "$PID" >/dev/null 2>&1 || xcrun simctl spawn "$DEV" launchctl list | grep -q "$BUNDLE"; then
-    echo "ok      $screen"
-  else
-    echo "CRASHED $screen (pid $PID)"; failed=1
+  # A crash always leaves a crash report; "not in launchctl" turned out to be unreliable.
+  if [ "$(reports)" -gt "$before" ]; then
+    echo "CRASHED $screen"; failed=1
     xcrun simctl spawn "$DEV" log show --last 40s --style compact \
       --predicate 'process == "RumbleTube" AND (messageType == error OR messageType == fault)' > "$OUT/$screen-log.txt" 2>/dev/null || true
+  else
+    echo "ok      $screen"
   fi
 done
 
