@@ -79,6 +79,14 @@ struct LibraryData: Codable, Equatable {
         return p
     }
 
+    /// How far through a video you are (0…1), from this phone or Rumble's own watch progress.
+    func watchFraction(for item: VideoItem) -> Double? {
+        guard let d = item.durationSeconds, d > 0, !item.isLive else { return nil }
+        let p = max(positions[item.id] ?? 0, item.progress ?? 0)
+        guard p > 0 else { return nil }
+        return min(1, (p > d - 15 && d > 60) ? 1 : p / d)
+    }
+
     mutating func savePosition(_ id: String, _ t: Double) {
         positions[id] = t
         if positions.count > 2000 {

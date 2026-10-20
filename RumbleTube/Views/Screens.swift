@@ -23,6 +23,12 @@ struct ChannelView: View {
             .navigationBarTitleDisplayMode(.inline)
     }
 
+    /// Your own channel: no Follow button.
+    private var isMine: Bool {
+        guard let u = account.username?.lowercased() else { return false }
+        return channel.path.lowercased() == "/user/\(u)" || channel.path.lowercased() == "/c/\(u)"
+    }
+
     private var header: some View {
         let h = model.header
         let ref = ChannelRef(path: channel.path, name: h?.name ?? channel.name, avatar: h?.avatar ?? channel.avatar)
@@ -42,6 +48,7 @@ struct ChannelView: View {
                 Spacer()
             }
             .padding(.horizontal, 12)
+            if !isMine {
             Button {
                 if canRumble, let id = h?.rumbleID {
                     let want = !following
@@ -66,6 +73,7 @@ struct ChannelView: View {
             .tint(following ? Color.secondary.opacity(0.3) : Color.rumbleGreen)
             .foregroundStyle(following ? Color.primary : Color.black)
             .padding(.horizontal, 12)
+            }
             if let followError { Text(followError).font(.caption).foregroundStyle(.red) }
         }
         .onChange(of: h?.avatar) { avatar in

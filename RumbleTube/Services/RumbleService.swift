@@ -65,6 +65,14 @@ final class RumbleService {
         return try await listing("/search/video", page: page, query: q)
     }
 
+    func searchChannels(_ query: String) async throws -> [ChannelResult] {
+        var c = URLComponents(string: "https://rumble.com/search/channel")!
+        c.queryItems = [URLQueryItem(name: "q", value: query)]
+        let (data, code) = try await RumbleHTTP.get(c.url!)
+        guard code == 200 else { throw RumbleError.http(code) }
+        return try ChannelSearchParser.parse(String(decoding: data, as: UTF8.self))
+    }
+
     func home() async throws -> HomePage {
         let (data, code) = try await RumbleHTTP.get(URL(string: "https://rumble.com/")!)
         guard code == 200 else { throw RumbleError.http(code) }

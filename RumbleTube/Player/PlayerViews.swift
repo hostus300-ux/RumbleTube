@@ -24,7 +24,7 @@ struct SegmentBar: View {
                 }
             }
         }
-        .frame(height: 4)
+        .frame(height: 3)
     }
 }
 
@@ -46,8 +46,6 @@ struct PlayerScreen: View {
         VStack(spacing: 0) {
             Capsule().fill(Color.secondary.opacity(0.4)).frame(width: 40, height: 5).padding(.vertical, 6)
             videoArea
-            SegmentBar(segments: player.segments, duration: player.duration, currentTime: player.currentTime,
-                       settings: library.data.skip)
             ScrollView { details.padding(.bottom, 40) }
         }
         .background(Color(.systemBackground))

@@ -130,6 +130,14 @@ struct PlayerStage: View {
             if let error = player.error { errorView(error) }
             else if player.loading || player.stream == nil { ProgressView().tint(.white) }
             if controlsVisible && player.error == nil && !player.loading { controls.transition(.opacity) }
+            // One bar at a time: a thin progress line only while the full controls are hidden (like YouTube).
+            if !controlsVisible && !isFullscreen && player.detail?.liveStatus != .isLive {
+                SegmentBar(segments: player.segments, duration: player.duration, currentTime: player.currentTime,
+                           settings: library.data.skip)
+                    .frame(maxHeight: .infinity, alignment: .bottom)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
             flashView
             if player.boosting {
                 Label("\(rateText(prefs.boostRate))×", systemImage: "forward.fill")

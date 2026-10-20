@@ -284,3 +284,21 @@ final class FeedParserTests: XCTestCase {
                        "https://hugh.cdn.rumble.cloud/video/z0/a.jpeg")
     }
 }
+
+final class ChannelSearchTests: XCTestCase {
+    func testChannelSearch() throws {
+        let url = Bundle.module.url(forResource: "channel-search", withExtension: "html", subdirectory: "Fixtures")!
+        let r = try ChannelSearchParser.parse(String(contentsOf: url, encoding: .utf8))
+        XCTAssertEqual(r.map(\.ref.path), ["/c/c-6643482", "/c/TheQuartering"])
+        XCTAssertEqual(r[1].ref.name, "The Quartering")
+        XCTAssertEqual(r[1].followers, "350,618")
+        XCTAssertTrue(r[1].verified)
+        XCTAssertEqual(r[1].ref.avatar, "https://hugh.cdn.rumble.cloud/video/z8/v/Q/m/b/vQmba.baa-TheQuartering-qtissd.jpeg")
+        XCTAssertNil(r[0].ref.avatar)
+    }
+
+    func testFollowingLatestLimitIsAccepted() {
+        // Rumble rejects limit > 50 with "Invalid limit".
+        XCTAssertTrue(FollowingAPI.latestRequest().url!.absoluteString.contains("limit=50"))
+    }
+}

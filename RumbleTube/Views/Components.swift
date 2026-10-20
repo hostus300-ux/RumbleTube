@@ -83,11 +83,26 @@ struct Thumbnail: View {
                     badge(d, Color.black.opacity(0.75))
                 }
             }
+            .overlay {
+                if let p = progress, p >= 0.95 { Color.black.opacity(0.35) }
+            }
+            .overlay(alignment: .topLeading) {
+                if let p = progress, p >= 0.95 {
+                    Label("Watched", systemImage: "checkmark.circle.fill")
+                        .font(.caption2.weight(.bold)).padding(.horizontal, 6).padding(.vertical, 3)
+                        .background(Color.black.opacity(0.75), in: RoundedRectangle(cornerRadius: 4))
+                        .foregroundStyle(.white).padding(6)
+                }
+            }
             .overlay(alignment: .bottom) {
-                if let p = progress, p > 0.02 {
+                if let p = progress, p > 0.01 {
                     GeometryReader { g in
-                        Rectangle().fill(Color.red).frame(width: g.size.width * min(1, p), height: 3)
-                            .frame(maxHeight: .infinity, alignment: .bottom)
+                        ZStack(alignment: .leading) {
+                            Rectangle().fill(Color.white.opacity(0.35))
+                            Rectangle().fill(Color.red).frame(width: g.size.width * min(1, p))
+                        }
+                        .frame(height: 4)
+                        .frame(maxHeight: .infinity, alignment: .bottom)
                     }
                 }
             }
@@ -155,10 +170,7 @@ struct VideoCard: View {
         .videoContextMenu(item)
     }
 
-    private var progress: Double? {
-        guard let p = library.data.positions[item.id], let d = item.durationSeconds, d > 0 else { return nil }
-        return p / d
-    }
+    private var progress: Double? { library.data.watchFraction(for: item) }
 }
 
 /// Compact row (thumbnail left).
@@ -180,10 +192,7 @@ struct VideoRow: View {
         .videoContextMenu(item)
     }
 
-    private var progress: Double? {
-        guard let p = library.data.positions[item.id], let d = item.durationSeconds, d > 0 else { return nil }
-        return p / d
-    }
+    private var progress: Double? { library.data.watchFraction(for: item) }
 }
 
 struct VideoContextMenu: ViewModifier {

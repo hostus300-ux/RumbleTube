@@ -238,7 +238,7 @@ enum MyFeedPill: String, CaseIterable, Identifiable {
 }
 
 enum FollowingAPI {
-    static func latestRequest(limit: Int = 100) -> URLRequest {
+    static func latestRequest(limit: Int = 50) -> URLRequest {
         URLRequest(url: URL(string: "https://rumble.com/-api/user/following-latest?limit=\(limit)")!)
     }
 
@@ -325,5 +325,50 @@ enum FollowAPI {
             "state": follow ? "1" : "0", "size": "default",
         ]).utf8)
         return r
+    }
+}
+
+// MARK: - Channel search (/search/channel?q=)
+
+struct ChannelResult: Identifiable, Hashable {
+    var ref: ChannelRef
+    var followers: String?
+    var verified: Bool
+    var id: String { ref.id }
+}
+
+enum ChannelSearchParser {
+    static func parse(_ html: String) throws -> [ChannelResult] {
+        let doc = try SwiftSoup.parse(html)
+        // Avatars are CSS background images: .user-image--img--id-N { background-image: url(...) }
+        var avatars: [String: String] = [:]
+        let pattern = #"user-image--img--id-(\d+)\s*\{\s*background-image:\s*url\(([^)]+)\)"#
+        if let re = try? NSRegularExpression(pattern: pattern) {
+            let ns = html as NSString
+            for m in re.matches(in: html, range: NSRange(location: 0, length: ns.length)) {
+                avatars[ns.substring(with: m.range(at: 1))] = ns.substring(with: m.range(at: 2))
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "'\" "))
+            }
+        }
+        var out: [ChannelResult] = []
+        var seen = Set<String>()
+        for art in try doc.select("article").array() {
+            guard let a = try art.select("a[href]").first(),
+                  let path = RumbleURL.channelPath(from: try a.attr("href").components(separatedBy: "?")[0]),
+                  seen.insert(path.lowercased()).inserted else { continue }
+            let name = try art.select("h3 span.truncate, h3 span").first()?.text() ?? path
+            var avatar: String?
+            if let i = try art.select("i.user-image").first(),
+               let cls = try i.className().components(separatedBy: " ").first(where: { $0.hasPrefix("user-image--img--id-") }) {
+                avatar = avatars[String(cls.dropFirst("user-image--img--id-".count))]
+            }
+            let followersText = try art.select("span").array().compactMap { try? $0.text() }
+                .first { $0.lowercased().contains("follower") }
+            let followers = followersText.map { $0.replacingOccurrences(of: "Followers", with: "", options: .caseInsensitive)
+                .replacingOccurrences(of: "\u{00A0}", with: " ").trimmingCharacters(in: .whitespaces) }
+            out.append(ChannelResult(ref: ChannelRef(path: path, name: name, avatar: avatar), followers: followers,
+                                     verified: try !art.select(".verification-badge-icon").isEmpty()))
+        }
+        return out
     }
 }

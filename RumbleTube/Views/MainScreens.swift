@@ -217,11 +217,7 @@ struct CompactCard: View {
         .videoContextMenu(item)
     }
 
-    private var progress: Double? {
-        let p = library.data.positions[item.id] ?? item.progress
-        guard let p, let d = item.durationSeconds, d > 0 else { return nil }
-        return p / d
-    }
+    private var progress: Double? { library.data.watchFraction(for: item) }
 }
 
 // MARK: - Any listing page ("See all", categories, Live…)
@@ -259,6 +255,9 @@ struct SearchScreen: View {
     @State private var submitted = ""
     @State private var sort: SearchSort = .relevance
     @State private var filter: ContentFilter = .all
+    @State private var channelsOnly = false
+    @State private var channels: [ChannelResult] = []
+    @State private var channelsLoading = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -279,21 +278,40 @@ struct SearchScreen: View {
                     Text("Search Rumble, or paste a rumble.com link.").foregroundStyle(.secondary)
                 }
                 .frame(maxHeight: .infinity)
+            } else if channelsOnly {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        chips
+                        if channelsLoading && channels.isEmpty { ProgressView().frame(maxWidth: .infinity).padding(40) }
+                        if !channelsLoading && channels.isEmpty {
+                            Text("No channels found.").foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(40)
+                        }
+                        ForEach(channels) { c in
+                            Button { router.open(c.ref) } label: { channelRow(c) }.buttonStyle(.plain)
+                        }
+                    }
+                }
             } else {
                 let q = submitted, s = sort
                 ListingView(model: ListingModel { page in try await RumbleService.shared.search(q, sort: s, page: page) },
                             filter: filter) {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            FilterChips(filter: $filter)
-                            Divider().frame(height: 22)
-                            Menu {
-                                Picker("Sort", selection: $sort) { ForEach(SearchSort.allCases) { Text($0.rawValue).tag($0) } }
-                            } label: { Chip(title: sort.rawValue, icon: "arrow.up.arrow.down") }
+                    VStack(alignment: .leading, spacing: 0) {
+                        chips
+                        if !channels.isEmpty && filter == .all {
+                            HStack {
+                                Text("Channels").font(.headline)
+                                Spacer()
+                                if channels.count > 3 {
+                                    Button("See all") { channelsOnly = true }.font(.subheadline.weight(.semibold))
+                                }
+                            }
+                            .padding(.horizontal, 12).padding(.top, 4)
+                            ForEach(channels.prefix(3)) { c in
+                                Button { router.open(c.ref) } label: { channelRow(c) }.buttonStyle(.plain)
+                            }
+                            Divider().padding(.vertical, 8)
                         }
-                        .padding(.horizontal, 12)
                     }
-                    .padding(.vertical, 8)
                 }
                 .id("\(q)|\(s.rawValue)")
             }
@@ -305,7 +323,52 @@ struct SearchScreen: View {
             let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if let link = RumbleService.item(fromLink: t) { player.play(link) } else if !t.isEmpty { submitted = t }
         }
+        .task(id: submitted) {
+            guard !submitted.isEmpty else { return }
+            channels = []
+            channelsLoading = true
+            channels = (try? await RumbleService.shared.searchChannels(submitted)) ?? []
+            channelsLoading = false
+        }
         .miniPlayerSpace()
+    }
+
+    private var chips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(ContentFilter.allCases) { f in
+                    Button { channelsOnly = false; filter = f } label: { Chip(title: f.rawValue, selected: !channelsOnly && filter == f) }
+                        .buttonStyle(.plain)
+                }
+                Button { channelsOnly = true } label: { Chip(title: "Channels", icon: "person.crop.circle", selected: channelsOnly) }
+                    .buttonStyle(.plain)
+                if !channelsOnly {
+                    Divider().frame(height: 22)
+                    Menu {
+                        Picker("Sort", selection: $sort) { ForEach(SearchSort.allCases) { Text($0.rawValue).tag($0) } }
+                    } label: { Chip(title: sort.rawValue, icon: "arrow.up.arrow.down") }
+                }
+            }
+            .padding(.horizontal, 12)
+        }
+        .padding(.vertical, 8)
+    }
+
+    private func channelRow(_ c: ChannelResult) -> some View {
+        HStack(spacing: 12) {
+            ChannelAvatar(name: c.ref.name, url: c.ref.avatar, size: 48)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 4) {
+                    Text(c.ref.name).font(.body.weight(.semibold)).lineLimit(1)
+                    if c.verified { Image(systemName: "checkmark.seal.fill").font(.caption).foregroundStyle(Color.rumbleGreen) }
+                }
+                if let f = c.followers { Text("\(f) followers").font(.caption).foregroundStyle(.secondary) }
+            }
+            Spacer()
+            Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 8)
+        .contentShape(Rectangle())
     }
 }
 
