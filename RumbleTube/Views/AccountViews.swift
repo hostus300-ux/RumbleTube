@@ -42,6 +42,8 @@ struct LoginWebView: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .default()
+        config.userContentController.addUserScript(WKUserScript(source: Self.cookieBannerScript,
+                                                                 injectionTime: .atDocumentEnd, forMainFrameOnly: false))
         let web = WKWebView(frame: .zero, configuration: config)
         web.customUserAgent = RumbleHTTP.userAgent
         web.navigationDelegate = context.coordinator
@@ -51,6 +53,24 @@ struct LoginWebView: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: WKWebView, context: Context) {}
+
+    /// Rumble's cookie consent pop-up (OneTrust) covers the sign-in form. This answers it with
+    /// "Reject All" (only essential cookies, which sign-in needs) and hides it, on every page of the flow.
+    static let cookieBannerScript = """
+    (function () {
+      var css = document.createElement('style');
+      css.textContent = '#onetrust-consent-sdk,#onetrust-banner-sdk,.onetrust-pc-dark-filter,#ot-sdk-btn-floating{display:none!important}' +
+                        'body{overflow:auto!important}';
+      (document.head || document.documentElement).appendChild(css);
+      var tries = 0;
+      var t = setInterval(function () {
+        var b = document.getElementById('onetrust-reject-all-handler') ||
+                document.querySelector('#onetrust-banner-sdk button.ot-pc-refuse-all-handler, .ot-pc-refuse-all-handler');
+        if (b) { b.click(); clearInterval(t); }
+        if (++tries > 40) clearInterval(t);
+      }, 250);
+    })();
+    """
 
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         let onNavigate: (URL) -> Void

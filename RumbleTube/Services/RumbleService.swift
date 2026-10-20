@@ -82,9 +82,48 @@ final class RumbleService {
     }
 
     func home() async throws -> HomePage {
-        let (data, code) = try await RumbleHTTP.get(URL(string: "https://rumble.com/")!)
-        guard code == 200 else { throw RumbleError.http(code) }
-        return try HomeParser.parse(String(decoding: data, as: UTF8.self))
+        do {
+            let (data, code) = try await RumbleHTTP.get(URL(string: "https://rumble.com/")!)
+            guard code == 200 else { throw RumbleError.http(code) }
+            let page = try HomeParser.parse(String(decoding: data, as: UTF8.self))
+            if !page.rows.isEmpty || !page.hero.isEmpty { return page }
+            throw RumbleError.noVideo
+        } catch {
+            // The homepage is sometimes refused (e.g. some VPNs / networks get 403) while listing pages
+            // still work: build Home from those instead of showing an error.
+            if let fallback = await homeFromListings(), !fallback.rows.isEmpty {
+                DiagLog.shared.log("home", "homepage unavailable (\(error.localizedDescription)); used listing pages")
+                return fallback
+            }
+            throw error
+        }
+    }
+
+    private func homeFromListings() async -> HomePage? {
+        let sources: [(id: String, title: String, path: String)] = [
+            ("editor-picks", "Editor Picks", "/editor-picks"),
+            ("live", "Live", "/browse/live"),
+            ("news", "News", "/category/news"),
+            ("podcasts", "Podcasts", "/category/podcasts"),
+            ("viral", "Viral", "/category/viral"),
+        ]
+        var rows: [HomeRow] = []
+        await withTaskGroup(of: (Int, HomeRow?).self) { g in
+            for (i, s) in sources.enumerated() {
+                g.addTask { @MainActor in
+                    guard let page = try? await self.listing(s.path), !page.items.isEmpty else { return (i, nil) }
+                    let items = page.items.filter { $0.isShort != true }.map { v -> VideoItem in
+                        var v = v; if s.path.hasPrefix("/category/") { v.category = s.title }; return v
+                    }
+                    return (i, HomeRow(id: s.id, title: s.title, feedPath: s.path, items: Array(items.prefix(20))))
+                }
+            }
+            var got: [(Int, HomeRow)] = []
+            for await (i, r) in g { if let r { got.append((i, r)) } }
+            rows = got.sorted { $0.0 < $1.0 }.map(\.1)
+        }
+        guard !rows.isEmpty else { return nil }
+        return HomePage(hero: Array(rows[0].items.prefix(1)), rows: rows, pills: [])
     }
 
     func channel(_ path: String, page: Int = 1, maxAge: TimeInterval = 600) async throws -> ListingPage {
