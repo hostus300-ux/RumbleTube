@@ -140,3 +140,59 @@ enum LiveChatParser {
         return nil
     }
 }
+
+// MARK: - Emotes (Rumble's own images, e.g. :r+rumblecharge: or channel/subscriber emotes)
+
+struct ChatEmote: Hashable {
+    var name: String          // "r+rumblecharge"
+    var url: String           // png / gif
+    var subsOnly: Bool
+}
+
+enum ChatSegment: Hashable {
+    case text(String)
+    case emote(ChatEmote)
+}
+
+enum ChatEmotes {
+    /// `service.php?name=emote.list&chat_id=<id>` (signed-in: includes channels you subscribe to).
+    static func request(chatID: String) -> URLRequest {
+        var c = URLComponents(string: "https://rumble.com/service.php")!
+        c.queryItems = [URLQueryItem(name: "name", value: "emote.list"), URLQueryItem(name: "chat_id", value: chatID)]
+        var r = URLRequest(url: c.url!)
+        r.setValue("https://rumble.com/", forHTTPHeaderField: "Referer")
+        return r
+    }
+
+    /// Accepts `{data:{items:[…]}}` or `{items:[…]}`; each item is a pack with `emotes:[{name,file,is_subs_only}]`.
+    static func parse(_ data: Data) -> [String: ChatEmote] {
+        guard let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return [:] }
+        let packs = ((obj["data"] as? [String: Any])?["items"] ?? obj["items"]) as? [[String: Any]] ?? []
+        var out: [String: ChatEmote] = [:]
+        for p in packs {
+            for e in p["emotes"] as? [[String: Any]] ?? [] {
+                guard let name = e["name"] as? String, let file = e["file"] as? String, !file.isEmpty else { continue }
+                out[name.lowercased()] = ChatEmote(name: name, url: file, subsOnly: e["is_subs_only"] as? Bool ?? false)
+            }
+        }
+        return out
+    }
+
+    /// Split a message into text and emote pieces (Rumble writes emotes as `:name:`).
+    static func segments(_ text: String, emotes: [String: ChatEmote]) -> [ChatSegment] {
+        guard !emotes.isEmpty, text.contains(":"),
+              let re = try? NSRegularExpression(pattern: #":([a-z0-9_]+(?:\+[a-z0-9_]+)?):"#, options: .caseInsensitive)
+        else { return [.text(text)] }
+        let ns = text as NSString
+        var out: [ChatSegment] = []
+        var last = 0
+        for m in re.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+            guard let e = emotes[ns.substring(with: m.range(at: 1)).lowercased()] else { continue }
+            if m.range.location > last { out.append(.text(ns.substring(with: NSRange(location: last, length: m.range.location - last)))) }
+            out.append(.emote(e))
+            last = m.range.location + m.range.length
+        }
+        if last < ns.length { out.append(.text(ns.substring(from: last))) }
+        return out.isEmpty ? [.text(text)] : out
+    }
+}

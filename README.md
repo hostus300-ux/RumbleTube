@@ -1,6 +1,6 @@
 # RumbleTube
 
-[**⬇︎ Download the latest IPA**](https://github.com/hostus300-ux/RumbleTube/releases/download/latest/RumbleTube.ipa) · current version 0.8.0
+[**⬇︎ Download the latest IPA**](https://github.com/hostus300-ux/RumbleTube/releases/download/latest/RumbleTube.ipa) · current version 0.8.1
 
 An unofficial iPhone client for Rumble that works like the YouTube app, with **RumbleSkip** (SponsorBlock-style skipping) built in. On your home screen it shows up as **Rumble**.
 
@@ -32,7 +32,7 @@ An unofficial iPhone client for Rumble that works like the YouTube app, with **R
 - **Comments:** read, like, reply and delete your own.
 - **Following:** Follow / Unfollow syncs with your Rumble account.
 - **Live chat:**
-  - Chat streams in real time.
+  - Chat streams in real time, with Rumble's emotes shown as images (animated ones play). This includes channel and subscriber emotes your account can use.
   - **Rants:** a $1–$500 tier slider shows how long your message stays pinned. Pay with Rumble Wallet, or with Apple Pay on Rumble's checkout.
   - **Gift subs** for the channel you're watching.
 
@@ -45,7 +45,7 @@ An unofficial iPhone client for Rumble that works like the YouTube app, with **R
 - Picture-in-Picture, AirPlay, background audio and lock-screen controls.
 - Quality picker, playback speed, and resume where you left off.
 - Mini player: swipe the player down and keep browsing.
-- Live streams are supported.
+- **Live streams:** you can rewind live streams. Drag the red bar or double-tap to go back. While you're behind, it shows how far back you are, e.g. "-2:15". Tap **LIVE** to jump back to the live edge.
 
 **RumbleSkip**
 - Auto-skips sponsor reads, self-promo and like/subscribe asks, with an Undo button.

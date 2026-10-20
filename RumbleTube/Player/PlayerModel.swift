@@ -19,6 +19,8 @@ final class PlayerModel: ObservableObject {
     @Published private(set) var isPlaying = false
     @Published private(set) var currentTime: Double = 0
     @Published private(set) var duration: Double = 0
+    /// Live streams with DVR: the part of the stream you can rewind into (player time, seconds).
+    @Published private(set) var liveWindow: ClosedRange<Double>?
     @Published var fullscreen = false
     @Published var zoomFill = false
     @Published private(set) var rate: Double = 1
@@ -102,8 +104,10 @@ final class PlayerModel: ObservableObject {
                 if hist.channelPath == nil { hist.channelPath = d.channel?.path; hist.channelName = d.channel?.name }
                 self.item = hist
                 self.library.data.recordWatch(hist)
-                if let s = self.preferredStream(for: d) {
+                if var s = self.preferredStream(for: d) {
                     let resume = d.liveStatus == .isLive ? nil : self.library.data.resumePosition(for: d.id, duration: d.duration)
+                    if d.liveStatus == .isLive, let dvr = await Self.dvrVariant(of: s) { s = dvr }   // rewindable live
+                    guard !Task.isCancelled, self.item?.id == newItem.id else { return }
                     self.start(s, at: resume)
                 }
                 self.loading = false
@@ -209,7 +213,57 @@ final class PlayerModel: ObservableObject {
 
     func seek(by delta: Double) {
         let t = player.currentTime().seconds + delta
+        if isLive {
+            guard let w = liveWindow else { return }
+            seek(to: min(max(t, w.lowerBound + 1), w.upperBound))
+            return
+        }
         seek(to: duration > 0 ? min(t, duration - 0.5) : t)
+    }
+
+    // MARK: - Live DVR
+
+    var isLive: Bool { detail?.liveStatus == .isLive }
+    /// Seconds behind the live edge.
+    var behindLive: Double { liveWindow.map { max(0, $0.upperBound - currentTime) } ?? 0 }
+    var atLiveEdge: Bool { liveWindow == nil || behindLive < 20 }
+
+    /// Jump back to the newest part of the stream.
+    func goLive() {
+        guard let pi = player.currentItem else { return }
+        if let w = liveWindow {
+            pi.seek(to: CMTime(seconds: w.upperBound, preferredTimescale: 600), completionHandler: nil)
+        } else {
+            pi.seek(to: .positiveInfinity, completionHandler: nil)
+        }
+        if !isPlaying { resume() }
+    }
+
+    private func updateLiveWindow() {
+        guard isLive, let r = player.currentItem?.seekableTimeRanges.last?.timeRangeValue else {
+            if liveWindow != nil { liveWindow = nil }
+            return
+        }
+        let lo = r.start.seconds, hi = (r.start + r.duration).seconds
+        guard lo.isFinite, hi.isFinite, hi - lo > 30 else { if liveWindow != nil { liveWindow = nil }; return }
+        // only publish meaningful changes (the edge moves every tick)
+        if let w = liveWindow, abs(w.lowerBound - lo) < 1, abs(w.upperBound - hi) < 1 { return }
+        liveWindow = lo...hi
+    }
+
+    /// Rumble serves a rewindable copy of live streams at /live-hls-dvr/; use it when it answers.
+    static func dvrVariant(of s: StreamOption) async -> StreamOption? {
+        guard s.kind == .hls, s.url.contains("/live-hls/"),
+              let url = URL(string: s.url.replacingOccurrences(of: "/live-hls/", with: "/live-hls-dvr/")) else { return nil }
+        var r = URLRequest(url: url, timeoutInterval: 4)
+        r.setValue(RumbleHTTP.userAgent, forHTTPHeaderField: "User-Agent")
+        r.setValue("https://rumble.com/", forHTTPHeaderField: "Referer")
+        guard let res = try? await RumbleHTTP.session.data(for: r),
+              (res.1 as? HTTPURLResponse)?.statusCode == 200,
+              String(decoding: res.0.prefix(16), as: UTF8.self).hasPrefix("#EXTM3U") else { return nil }
+        var dvr = s
+        dvr.url = url.absoluteString
+        return dvr
     }
 
     func setRate(_ r: Double) {
@@ -262,6 +316,7 @@ final class PlayerModel: ObservableObject {
     private func tick(_ t: Double) {
         guard t.isFinite else { return }
         currentTime = t
+        updateLiveWindow()
         checkSkip()
         if abs(t - lastSaved) > 5 { lastSaved = t; savePosition() }
     }

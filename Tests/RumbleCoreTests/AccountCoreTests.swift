@@ -427,3 +427,16 @@ final class DiscoveryTests: XCTestCase {
         XCTAssertEqual(back.hero.first?.viewCount, 1)
     }
 }
+
+final class ChatEmoteTests: XCTestCase {
+    func testParseAndSegment() {
+        let json = #"{"data":{"items":[{"id":1,"title":"Rumble Emotes","emotes":[{"name":"r+rumblecharge","is_subs_only":false,"file":"https://e.example/charge.gif"}]},{"id":2,"title":"ExampleChannel","emotes":[{"name":"examplech+hype","is_subs_only":true,"file":"https://e.example/hype.png"}]}]}}"#
+        let e = ChatEmotes.parse(Data(json.utf8))
+        XCTAssertEqual(e.count, 2)
+        XCTAssertTrue(e["examplech+hype"]!.subsOnly)
+        let s = ChatEmotes.segments("Let's go :r+rumblecharge::ExampleCh+Hype: and :unknown: ok", emotes: e)
+        XCTAssertEqual(s, [.text("Let's go "), .emote(e["r+rumblecharge"]!), .emote(e["examplech+hype"]!), .text(" and :unknown: ok")])
+        XCTAssertEqual(ChatEmotes.segments("no emotes", emotes: e), [.text("no emotes")])
+        XCTAssertEqual(ChatEmotes.parse(Data(#"{"items":[{"emotes":[{"name":"a","file":"x"}]}]}"#.utf8)).count, 1)
+    }
+}

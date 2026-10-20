@@ -293,10 +293,20 @@ struct PlayerStage: View {
 
     private var bottomBar: some View {
         VStack(spacing: 6) {
-            HStack {
-                if player.detail?.liveStatus == .isLive {
-                    Text("LIVE").font(.caption2.weight(.bold)).padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(Color.red, in: RoundedRectangle(cornerRadius: 3))
+            HStack(spacing: 10) {
+                if player.isLive {
+                    Button { player.goLive(); scheduleHide() } label: {
+                        HStack(spacing: 5) {
+                            Circle().fill(player.atLiveEdge ? Color.red : Color.white.opacity(0.6)).frame(width: 7, height: 7)
+                            Text("LIVE").font(.caption2.weight(.heavy))
+                        }
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(player.atLiveEdge ? Color.red.opacity(0.9) : Color.white.opacity(0.22), in: Capsule())
+                    }
+                    .accessibilityLabel(player.atLiveEdge ? "Live" : "Jump to live")
+                    if !player.atLiveEdge {
+                        Text("-" + TimeFormat.clock(liveScrubBehind)).font(.caption.weight(.medium)).monospacedDigit()
+                    }
                 } else {
                     Text("\(TimeFormat.clock(scrubbing ?? player.currentTime)) / \(TimeFormat.clock(player.duration))")
                         .font(.caption.weight(.medium)).monospacedDigit()
@@ -307,35 +317,49 @@ struct PlayerStage: View {
                         .font(.body.weight(.semibold))
                 }
             }
-            if player.detail?.liveStatus != .isLive { scrubber }
+            if !player.isLive || player.liveWindow != nil { scrubber }
         }
+    }
+
+    /// Seconds behind live, following the finger while scrubbing.
+    private var liveScrubBehind: Double {
+        guard let w = player.liveWindow else { return 0 }
+        return max(0, w.upperBound - (scrubbing ?? player.currentTime))
     }
 
     private var scrubber: some View {
         GeometryReader { g in
-            let d = max(player.duration, 1)
+            let lo = player.liveWindow?.lowerBound ?? 0
+            let hi = player.liveWindow?.upperBound ?? max(player.duration, 1)
+            let span = max(hi - lo, 1)
             let t = scrubbing ?? player.currentTime
+            let f = min(1, max(0, (t - lo) / span))
             ZStack(alignment: .leading) {
                 Capsule().fill(Color.white.opacity(0.3)).frame(height: 4)
-                Capsule().fill(Color.accentColor).frame(width: g.size.width * min(1, t / d), height: 4)
-                ForEach(player.segments.filter { library.data.skip.action(for: $0.category) != .off }) { s in
-                    Rectangle().fill(s.category.color)
-                        .frame(width: max(2, g.size.width * (s.end - s.start) / d), height: 4)
-                        .offset(x: g.size.width * s.start / d)
+                Capsule().fill(player.isLive ? Color.red : Color.accentColor).frame(width: g.size.width * f, height: 4)
+                if !player.isLive {
+                    ForEach(player.segments.filter { library.data.skip.action(for: $0.category) != .off }) { s in
+                        Rectangle().fill(s.category.color)
+                            .frame(width: max(2, g.size.width * (s.end - s.start) / span), height: 4)
+                            .offset(x: g.size.width * s.start / span)
+                    }
                 }
-                Circle().fill(Color.accentColor).frame(width: scrubbing == nil ? 12 : 18, height: scrubbing == nil ? 12 : 18)
-                    .offset(x: g.size.width * min(1, t / d) - (scrubbing == nil ? 6 : 9))
+                Circle().fill(player.isLive ? Color.red : Color.accentColor)
+                    .frame(width: scrubbing == nil ? 12 : 18, height: scrubbing == nil ? 12 : 18)
+                    .offset(x: g.size.width * f - (scrubbing == nil ? 6 : 9))
             }
             .frame(maxHeight: .infinity)
             .contentShape(Rectangle())
             .highPriorityGesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { v in
-                        scrubbing = min(max(0, v.location.x / g.size.width), 1) * d
+                        scrubbing = lo + min(max(0, v.location.x / g.size.width), 1) * span
                         hideTask?.cancel()
                     }
                     .onEnded { _ in
-                        if let s = scrubbing { player.seek(to: s) }
+                        if let s = scrubbing {
+                            if player.isLive && hi - s < 5 { player.goLive() } else { player.seek(to: s) }
+                        }
                         scrubbing = nil
                         scheduleHide()
                     }
