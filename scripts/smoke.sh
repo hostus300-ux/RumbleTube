@@ -16,6 +16,16 @@ xcrun simctl ui "$DEV" appearance dark || true
 xcrun simctl install "$DEV" "$APP"
 
 failed=0
+python3 -m pip install --quiet pillow >/dev/null 2>&1 || true
+# Prints the share of the screen that is the launch-screen colour (#15191D): ~1.0 means the app never drew.
+blank() { python3 - "$1" <<'PY'
+import sys
+from PIL import Image
+im = Image.open(sys.argv[1]).convert("RGB").resize((120, 260))
+px = list(im.getdata())
+print(round(sum(1 for p in px if abs(p[0]-21) < 6 and abs(p[1]-25) < 6 and abs(p[2]-29) < 6) / len(px), 2))
+PY
+}
 reports() { find ~/Library/Logs/DiagnosticReports -iname '*RumbleTube*' 2>/dev/null | wc -l | tr -d ' '; }
 for screen in home shorts discover my-feed account search inbox settings; do
   xcrun simctl terminate "$DEV" "$BUNDLE" >/dev/null 2>&1 || true
@@ -23,6 +33,15 @@ for screen in home shorts discover my-feed account search inbox settings; do
   xcrun simctl launch "$DEV" "$BUNDLE" -launchTab "$screen" -smokeTest YES >/dev/null 2>&1
   sleep 30   # the Intel simulator can take 15–25 s to show the first frame after a relaunch
   xcrun simctl io "$DEV" screenshot "$OUT/$screen.png" >/dev/null 2>&1 || true
+  b=$(blank "$OUT/$screen.png" 2>/dev/null || echo 0)
+  if python3 -c "import sys; sys.exit(0 if float('$b') > 0.9 else 1)"; then
+    echo "STUCK?  $screen (screen still blank after 30 s) - sampling main thread"
+    PID=$(pgrep -f 'RumbleTube.app/RumbleTube' | tail -1)
+    [ -n "$PID" ] && sample "$PID" 3 -file "$OUT/$screen-sample.txt" >/dev/null 2>&1
+    sleep 30
+    xcrun simctl io "$DEV" screenshot "$OUT/$screen-60s.png" >/dev/null 2>&1 || true
+    echo "        after 60 s blank=$(blank "$OUT/$screen-60s.png" 2>/dev/null)"
+  fi
   # A crash always leaves a crash report; "not in launchctl" turned out to be unreliable.
   if [ "$(reports)" -gt "$before" ]; then
     echo "CRASHED $screen"; failed=1
