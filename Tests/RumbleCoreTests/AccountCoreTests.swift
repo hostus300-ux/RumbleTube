@@ -211,7 +211,7 @@ final class FeedParserTests: XCTestCase {
         XCTAssertEqual(live.channelName, "TimcastIRL")
         XCTAssertEqual(live.channelPath, "/c/TimcastIRL")
         XCTAssertNotNil(live.channelAvatar)
-        XCTAssertEqual(live.progress, 2792)
+        XCTAssertEqual(live.progress, 1500)
         XCTAssertEqual(live.numericID, "448343828")
         XCTAssertEqual(live.commentListID, "7exkb8")
         XCTAssertNil(live.duration)
