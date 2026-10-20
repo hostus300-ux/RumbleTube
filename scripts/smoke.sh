@@ -18,17 +18,20 @@ xcrun simctl install "$DEV" "$APP"
 failed=0
 for screen in home shorts discover my-feed account search inbox settings; do
   xcrun simctl terminate "$DEV" "$BUNDLE" >/dev/null 2>&1 || true
-  xcrun simctl launch "$DEV" "$BUNDLE" -launchTab "$screen" -smokeTest YES >/dev/null
+  PID=$(xcrun simctl launch "$DEV" "$BUNDLE" -launchTab "$screen" -smokeTest YES 2>/dev/null | awk '{print $NF}')
   sleep 14
   xcrun simctl io "$DEV" screenshot "$OUT/$screen.png" >/dev/null 2>&1 || true
-  if xcrun simctl spawn "$DEV" launchctl list | grep -q "$BUNDLE"; then
+  if [ -n "$PID" ] && xcrun simctl spawn "$DEV" ps -p "$PID" >/dev/null 2>&1 || xcrun simctl spawn "$DEV" launchctl list | grep -q "$BUNDLE"; then
     echo "ok      $screen"
   else
-    echo "CRASHED $screen"; failed=1
+    echo "CRASHED $screen (pid $PID)"; failed=1
+    xcrun simctl spawn "$DEV" log show --last 40s --style compact \
+      --predicate 'process == "RumbleTube" AND (messageType == error OR messageType == fault)' > "$OUT/$screen-log.txt" 2>/dev/null || true
   fi
 done
 
-# crash reports, if any
-find ~/Library/Logs/DiagnosticReports -name 'RumbleTube*' -newer "$APP" -exec cp {} "$OUT/" \; 2>/dev/null || true
+# crash reports, if any (simulator crashes land in the host's DiagnosticReports)
+find ~/Library/Logs/DiagnosticReports -iname '*RumbleTube*' -exec cp {} "$OUT/" \; 2>/dev/null || true
+ls "$OUT"
 xcrun simctl shutdown "$DEV" || true
 exit $failed
