@@ -27,6 +27,10 @@ final class PlayerModel: ObservableObject {
     @Published private(set) var duration: Double = 0
     /// Live streams with DVR: the part of the stream you can rewind into (player time, seconds).
     @Published private(set) var liveWindow: ClosedRange<Double>?
+    /// Chapters listed in the description (3+ timestamped lines).
+    @Published private(set) var chapters: [Chapter] = []
+    private var pendingStart: Double?
+    var currentChapter: Chapter? { Timestamps.current(chapters, at: currentTime) }
     @Published var fullscreen = false
     @Published var zoomFill = false
     @Published private(set) var rate: Double = 1
@@ -82,6 +86,13 @@ final class PlayerModel: ObservableObject {
 
     // MARK: - Opening videos
 
+    /// Open a video at a given time (from a timestamp link).
+    func play(_ newItem: VideoItem, at time: Double) {
+        if item?.id == newItem.id, error == nil { seek(to: time); expanded = true; return }
+        pendingStart = time
+        play(newItem)
+    }
+
     func play(_ newItem: VideoItem) {
         if item?.id == newItem.id, error == nil {
             expanded = true
@@ -91,7 +102,7 @@ final class PlayerModel: ObservableObject {
         savePosition()
         item = newItem
         detail = nil; error = nil; loading = true; expanded = true; stream = nil
-        currentTime = 0; duration = 0; artwork = nil
+        currentTime = 0; duration = 0; artwork = nil; chapters = []
         resetSkipState()
         player.replaceCurrentItem(with: nil)
         ShortsModel.pauseAll()
@@ -103,9 +114,11 @@ final class PlayerModel: ObservableObject {
             // Downloaded: play the saved file, no network needed.
             if let rec = DownloadManager.shared.record(newItem.id) {
                 self.detail = rec.detail
+                self.chapters = Timestamps.chapters(in: rec.detail.description ?? "", duration: rec.detail.duration)
                 self.library.data.recordWatch(rec.item)
                 let local = StreamOption(kind: .mp4, height: nil, bitrate: nil, url: DownloadManager.shared.fileURL(rec).absoluteString)
-                self.start(local, at: self.library.data.resumePosition(for: rec.id, duration: rec.detail.duration))
+                self.start(local, at: self.pendingStart ?? self.library.data.resumePosition(for: rec.id, duration: rec.detail.duration))
+                self.pendingStart = nil
                 self.loading = false
                 self.loadArtwork()
                 await self.loadSegments()
@@ -115,6 +128,10 @@ final class PlayerModel: ObservableObject {
                 let d = try await RumbleService.shared.detail(for: newItem)
                 guard !Task.isCancelled, self.item?.id == newItem.id else { return }
                 self.detail = d
+                if d.liveStatus != .isLive {
+                    WidgetBridge.liveActivity(title: nil, channel: nil, viewers: nil, behindLive: 0, playing: false, active: false)
+                }
+                self.chapters = Timestamps.chapters(in: d.description ?? "", duration: d.duration)
                 var hist = newItem.title == "Loading…" ? d.asItem : newItem
                 if hist.thumbnail == nil { hist.thumbnail = d.thumbnail }
                 if hist.duration == nil { hist.duration = d.duration.map { TimeFormat.clock($0) } }
@@ -122,7 +139,8 @@ final class PlayerModel: ObservableObject {
                 self.item = hist
                 self.library.data.recordWatch(hist)
                 if var s = self.preferredStream(for: d) {
-                    let resume = d.liveStatus == .isLive ? nil : self.library.data.resumePosition(for: d.id, duration: d.duration)
+                    let resume = d.liveStatus == .isLive ? nil : (self.pendingStart ?? self.library.data.resumePosition(for: d.id, duration: d.duration))
+                    self.pendingStart = nil
                     if d.liveStatus == .isLive, let dvr = await Self.dvrVariant(of: s) { s = dvr }   // rewindable live
                     guard !Task.isCancelled, self.item?.id == newItem.id else { return }
                     self.start(s, at: resume)
@@ -147,6 +165,7 @@ final class PlayerModel: ObservableObject {
     }
 
     func close() {
+        WidgetBridge.liveActivity(title: nil, channel: nil, viewers: nil, behindLive: 0, playing: false, active: false)
         savePosition()
         loadTask?.cancel()
         player.pause()
@@ -174,7 +193,25 @@ final class PlayerModel: ObservableObject {
 
     // MARK: - Streams
 
+    var audioOnly: Bool { library.data.prefs.audioOnly }
+
+    /// Audio-only: smallest stream / lowest HLS variant and no picture; switch back restores quality.
+    func setAudioOnly(_ on: Bool) {
+        library.data.prefs.audioOnly = on
+        if let pi = player.currentItem { pi.preferredPeakBitRate = on ? 1 : 0 }
+        if let d = detail, stream?.kind == .mp4, !(stream?.url.hasPrefix("file:") ?? false),
+           let s = preferredStream(for: d), s != stream {
+            let wasPlaying = isPlaying
+            start(s, at: currentTime > 1 ? currentTime : nil, autoplay: wasPlaying)
+        }
+        objectWillChange.send()
+    }
+
     private func preferredStream(for d: VideoDetail) -> StreamOption? {
+        if audioOnly, d.liveStatus != .isLive {
+            let mp4 = d.streams.filter { $0.kind == .mp4 }
+            if let small = mp4.min(by: { ($0.height ?? 0) < ($1.height ?? 0) }) { return small }
+        }
         guard let want = library.data.preferredHeight, d.liveStatus != .isLive else { return d.defaultStream }
         let mp4 = d.streams.filter { $0.kind == .mp4 && ($0.height ?? 0) <= want }
         return mp4.max { ($0.height ?? 0) < ($1.height ?? 0) } ?? d.defaultStream
@@ -195,6 +232,7 @@ final class PlayerModel: ObservableObject {
         ])
         let pi = AVPlayerItem(asset: asset)
         pi.preferredForwardBufferDuration = 10
+        if audioOnly { pi.preferredPeakBitRate = 1 }      // HLS: lowest variant
         itemObservers.removeAll()
         pi.publisher(for: \.status)
             .receive(on: DispatchQueue.main)
@@ -338,6 +376,16 @@ final class PlayerModel: ObservableObject {
         updateLiveWindow()
         checkSkip()
         if abs(t - lastSaved) > 5 { lastSaved = t; savePosition() }
+        if isLive, Date().timeIntervalSince(lastActivityUpdate) > 15 { updateLiveActivity() }
+    }
+
+    private var lastActivityUpdate = Date.distantPast
+
+    /// Lock Screen / Dynamic Island card while a live stream plays.
+    func updateLiveActivity() {
+        lastActivityUpdate = Date()
+        WidgetBridge.liveActivity(title: detail?.title ?? item?.title, channel: detail?.channel?.name ?? item?.channelName,
+                                  viewers: item?.watching, behindLive: behindLive, playing: isPlaying, active: isLive && item != nil)
     }
 
     private func checkSkip() {

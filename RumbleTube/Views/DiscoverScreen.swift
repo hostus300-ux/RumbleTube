@@ -240,17 +240,19 @@ struct DiscoverScreen: View {
                     Text("Watch a few videos and For You will start matching your taste. Showing Trending for now.")
                         .font(.footnote).foregroundStyle(.secondary).padding(.horizontal, 16).padding(.bottom, 8)
                 }
-                ForEach(list) { r in
-                    Button { player.play(r.item) } label: {
-                        VStack(alignment: .leading, spacing: 6) {
-                            if let reason = r.reason {
-                                Text(reason).font(.caption.weight(.semibold)).foregroundStyle(Color.accentColor)
-                                    .padding(.horizontal, 12)
+                CardGrid {
+                    ForEach(list) { r in
+                        Button { player.play(r.item) } label: {
+                            VStack(alignment: .leading, spacing: 6) {
+                                if let reason = r.reason {
+                                    Text(reason).font(.caption.weight(.semibold)).foregroundStyle(Color.accentColor)
+                                        .padding(.horizontal, 12)
+                                }
+                                VideoCard(item: r.item)
                             }
-                            VideoCard(item: r.item)
                         }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
                 if list.isEmpty {
                     VStack(spacing: 10) {

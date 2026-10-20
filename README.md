@@ -1,6 +1,6 @@
 # RumbleTube
 
-[**⬇︎ Download the latest IPA**](https://github.com/hostus300-ux/RumbleTube/releases/download/latest/RumbleTube.ipa) · current version 0.8.3
+[**⬇︎ Download the latest IPA**](https://github.com/hostus300-ux/RumbleTube/releases/download/latest/RumbleTube.ipa) · current version 0.9.0
 
 An unofficial iPhone client for Rumble that works like the YouTube app, with **RumbleSkip** (SponsorBlock-style skipping) built in. On your home screen it shows up as **Rumble**.
 
@@ -54,6 +54,17 @@ An unofficial iPhone client for Rumble that works like the YouTube app, with **R
   - If the lengths match, it skips automatically.
   - If it's a different edit, it shows buttons instead of skipping on its own.
 - Mark your own segments, vote on them, or keep them on your device only. Works with the RumbleSkip browser extension's community server.
+
+**Offline, alerts and extras**
+- **Downloads:** save videos as MP4 to watch offline. Use the Download button under a video, or long-press any video. You can manage them, and pick the quality, in Account → Downloads.
+- **Went-live alerts:** get notified when a channel you follow goes live. Turn it on in Settings → Rumble account.
+- **Timestamps:** tap times like 12:34 in descriptions and comments to jump there. When a description lists 3 or more timestamped lines, they become chapters, with marks on the progress bar and the current chapter name shown.
+- **Audio only:** plays the lowest-quality video stream and shows the artwork instead of the picture, to save data. Use the button under the video or turn it on in Settings.
+- **Widgets:** "Live now" from channels you follow, and "Continue watching". While you watch a live stream, a Lock Screen and Dynamic Island card shows the viewer count and how far behind live you are.
+- **Search history and suggestions,** including matching channels you follow.
+- **iPad:** a grid layout, with the video and live chat side by side.
+- **Rumble Watch Later:** your Rumble Watch Later list appears next to the phone's own list.
+- **Report a problem:** in Settings. It shares a log of what failed, without passwords, cookies or what you searched for.
 
 **Look**
 - Built for iOS 26 **Liquid Glass**: glass header buttons, filter chips, a floating mini player, and a tab bar that shrinks while you scroll. You can switch it off in Settings.

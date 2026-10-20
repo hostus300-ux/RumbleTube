@@ -24,6 +24,7 @@ struct LibraryData: Codable, Equatable {
     var skipStats = SkipStats()
     var prefs = AppPreferences()
     var autoLinks: [String: AutoLinkRecord] = [:]
+    var searchHistory: [String] = []
 
     static let historyLimit = 500
 
@@ -43,6 +44,16 @@ struct LibraryData: Codable, Equatable {
         skipStats = (try? c.decodeIfPresent(SkipStats.self, forKey: .skipStats)) ?? SkipStats()
         prefs = (try? c.decodeIfPresent(AppPreferences.self, forKey: .prefs)) ?? AppPreferences()
         autoLinks = (try? c.decodeIfPresent([String: AutoLinkRecord].self, forKey: .autoLinks)) ?? [:]
+        searchHistory = (try? c.decodeIfPresent([String].self, forKey: .searchHistory)) ?? []
+    }
+
+    /// Most recent first, no duplicates (case-insensitive), at most 30.
+    mutating func addSearch(_ q: String) {
+        let t = q.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return }
+        searchHistory.removeAll { $0.caseInsensitiveCompare(t) == .orderedSame }
+        searchHistory.insert(t, at: 0)
+        if searchHistory.count > 30 { searchHistory.removeLast(searchHistory.count - 30) }
     }
 
     mutating func saveAutoLink(_ id: String, _ r: AutoLinkRecord) {

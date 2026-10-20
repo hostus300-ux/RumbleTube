@@ -313,6 +313,7 @@ struct ListingScreen: View {
 struct SearchScreen: View {
     @EnvironmentObject var player: PlayerModel
     @EnvironmentObject var router: Router
+    @EnvironmentObject var library: LibraryStore
     @State private var text = ""
     @State private var submitted = ""
     @State private var sort: SearchSort = .relevance
@@ -334,12 +335,8 @@ struct SearchScreen: View {
                 }
                 .buttonStyle(.borderedProminent).tint(.rumbleGreen).foregroundStyle(.black).padding()
             }
-            if submitted.isEmpty {
-                VStack(spacing: 10) {
-                    Image(systemName: "magnifyingglass").font(.system(size: 40)).foregroundStyle(.secondary)
-                    Text("Search Rumble, or paste a rumble.com link.").foregroundStyle(.secondary)
-                }
-                .frame(maxHeight: .infinity)
+            if submitted.isEmpty || (!text.isEmpty && text != submitted && !suggestions.isEmpty) {
+                suggestionList
             } else if channelsOnly {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
@@ -383,7 +380,7 @@ struct SearchScreen: View {
         .searchable(text: $text, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search Rumble or paste a link")
         .onSubmit(of: .search) {
             let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let link = RumbleService.item(fromLink: t) { player.play(link) } else if !t.isEmpty { submitted = t }
+            if let link = RumbleService.item(fromLink: t) { player.play(link) } else if !t.isEmpty { run(t) }
         }
         .task(id: submitted) {
             guard !submitted.isEmpty else { return }
@@ -393,6 +390,64 @@ struct SearchScreen: View {
             channelsLoading = false
         }
         .miniPlayerSpace()
+    }
+
+    private func run(_ q: String) {
+        text = q
+        submitted = q
+        library.data.addSearch(q)
+    }
+
+    private var suggestions: [SearchSuggest.Item] {
+        let chans = library.data.follows + MyFeedModel.shared.channels.map(\.ref)
+        return SearchSuggest.items(for: text, history: library.data.searchHistory, channels: chans)
+    }
+
+    @ViewBuilder private var suggestionList: some View {
+        let items = suggestions
+        if items.isEmpty {
+            VStack(spacing: 10) {
+                Image(systemName: "magnifyingglass").font(.system(size: 40)).foregroundStyle(.secondary)
+                Text("Search Rumble, or paste a rumble.com link.").foregroundStyle(.secondary)
+            }
+            .frame(maxHeight: .infinity)
+        } else {
+            List {
+                Section {
+                    ForEach(items, id: \.self) { it in
+                        switch it {
+                        case .recent(let q):
+                            Button { run(q) } label: {
+                                HStack {
+                                    Label(q, systemImage: "clock.arrow.circlepath").foregroundStyle(.primary)
+                                    Spacer()
+                                    Image(systemName: "arrow.up.left").foregroundStyle(.secondary).font(.caption)
+                                }
+                            }
+                            .swipeActions { Button("Delete", role: .destructive) { library.data.searchHistory.removeAll { $0 == q } } }
+                        case .channel(let c):
+                            Button { router.open(c) } label: {
+                                HStack(spacing: 10) {
+                                    ChannelAvatar(name: c.name, url: c.avatar, size: 28)
+                                    Text(c.name).foregroundStyle(.primary)
+                                    Spacer()
+                                    Text("Channel").font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+                } header: {
+                    if text.isEmpty {
+                        HStack {
+                            Text("Recent searches")
+                            Spacer()
+                            Button("Clear") { library.data.searchHistory = [] }.font(.caption.weight(.semibold))
+                        }
+                    }
+                }
+            }
+            .listStyle(.plain)
+        }
     }
 
     private var chips: some View {
@@ -479,6 +534,7 @@ final class MyFeedModel: ObservableObject {
         channelsAt = Date()
         FollowedChannelCache.save(c)
         AvatarCache.shared.prefetch(c.prefix(20).compactMap(\.ref.avatar))
+        WidgetBridge.update()
     }
 
     private func refreshLive(force: Bool) async {
@@ -536,9 +592,11 @@ struct MyFeedScreen: View {
                 }
                 channelCircles
                 pills
-                ForEach(model.items) { item in
-                    Button { player.play(item) } label: { VideoCard(item: item) }.buttonStyle(.plain)
-                        .onAppear { if item.id == model.items.last?.id { Task { await model.loadMore() } } }
+                CardGrid {
+                    ForEach(model.items) { item in
+                        Button { player.play(item) } label: { VideoCard(item: item) }.buttonStyle(.plain)
+                            .onAppear { if item.id == model.items.last?.id { Task { await model.loadMore() } } }
+                    }
                 }
                 if model.loading && model.items.isEmpty { ProgressView().frame(maxWidth: .infinity).padding(50) }
                 if !model.loading && model.items.isEmpty && model.error == nil {
@@ -907,20 +965,34 @@ struct HistoryScreen: View {
 }
 
 struct WatchLaterScreen: View {
+    enum Source: String, CaseIterable, Identifiable { case phone = "This phone", rumble = "Rumble"; var id: String { rawValue } }
     @EnvironmentObject var library: LibraryStore
+    @EnvironmentObject var account: AccountStore
     @EnvironmentObject var player: PlayerModel
+    @State private var source: Source = .phone
 
     var body: some View {
-        List {
-            ForEach(library.data.watchLater) { v in
-                Button { player.play(v) } label: { VideoRow(item: v) }.buttonStyle(.plain)
+        VStack(spacing: 0) {
+            if account.loggedIn {
+                Picker("Source", selection: $source) { ForEach(Source.allCases) { Text($0.rawValue).tag($0) } }
+                    .pickerStyle(.segmented).padding(.horizontal, 12).padding(.vertical, 8)
             }
-            .onDelete { library.data.watchLater.remove(atOffsets: $0) }
-            .onMove { library.data.watchLater.move(fromOffsets: $0, toOffset: $1) }
+            if source == .rumble && account.loggedIn {
+                ListingView(model: ListingModel { page in try await RumbleService.shared.listing("/playlists/watch-later", page: page) },
+                            style: .rows)
+            } else {
+                List {
+                    ForEach(library.data.watchLater) { v in
+                        Button { player.play(v) } label: { VideoRow(item: v) }.buttonStyle(.plain)
+                    }
+                    .onDelete { library.data.watchLater.remove(atOffsets: $0) }
+                    .onMove { library.data.watchLater.move(fromOffsets: $0, toOffset: $1) }
+                }
+                .listStyle(.plain)
+                .overlay { if library.data.watchLater.isEmpty { Text("Long-press any video and choose Watch Later.").foregroundStyle(.secondary).padding(30) } }
+                .toolbar { EditButton() }
+            }
         }
-        .listStyle(.plain)
-        .overlay { if library.data.watchLater.isEmpty { Text("Long-press any video and choose Watch Later.").foregroundStyle(.secondary).padding(30) } }
-        .toolbar { EditButton() }
         .navigationTitle("Watch Later")
         .navigationBarTitleDisplayMode(.inline)
         .miniPlayerSpace()

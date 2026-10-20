@@ -21,6 +21,7 @@ targets:
       - path: RumbleTube
         excludes:
           - "Resources/extract.js"
+          - "*.entitlements"
       - path: RumbleTube/Resources/extract.js
         buildPhase: resources
     info:
@@ -41,6 +42,7 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
+        NSSupportsLiveActivities: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.hostus300.rumbletube
@@ -49,6 +51,32 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         GENERATE_INFOPLIST_FILE: NO
         ENABLE_PREVIEWS: NO
+        CODE_SIGN_ENTITLEMENTS: RumbleTube/RumbleTube.entitlements
     dependencies:
       - package: SwiftSoup
+      - target: RumbleWidgets
     scheme: {}
+  RumbleWidgets:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "16.2"
+    sources:
+      - path: RumbleWidgets
+        excludes:
+          - "*.entitlements"
+      - path: RumbleTube/Shared
+    info:
+      path: RumbleWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: Rumble
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hostus300.rumbletube.widgets
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: NO
+        SKIP_INSTALL: YES
+        CODE_SIGN_ENTITLEMENTS: RumbleWidgets/RumbleWidgets.entitlements

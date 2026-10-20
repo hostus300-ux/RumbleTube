@@ -46,6 +46,12 @@ jobs:
         run: |
           mkdir -p Payload
           cp -R build/Build/Products/Release-iphoneos/RumbleTube.app Payload/
+          # Ad-hoc sign with entitlements (widget App Group) so sideloading tools carry them over when re-signing.
+          if [ -d Payload/RumbleTube.app/PlugIns/RumbleWidgets.appex ]; then
+            codesign --force --sign - --entitlements RumbleWidgets/RumbleWidgets.entitlements Payload/RumbleTube.app/PlugIns/RumbleWidgets.appex
+          fi
+          codesign --force --sign - --entitlements RumbleTube/RumbleTube.entitlements Payload/RumbleTube.app
+          codesign -d --entitlements - Payload/RumbleTube.app 2>/dev/null | grep -q application-groups && echo "entitlements embedded"
           zip -qry RumbleTube.ipa Payload
 
       - uses: actions/upload-artifact@v4

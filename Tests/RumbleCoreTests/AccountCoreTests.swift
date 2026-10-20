@@ -468,3 +468,46 @@ final class DownloadPlanTests: XCTestCase {
         XCTAssertNil(DownloadPlan.stream(from: [s[0]], maxHeight: 720), "HLS-only (live) can't be downloaded")
     }
 }
+
+final class LiveAlertTests: XCTestCase {
+    func testOnlyNewlyLive() {
+        let a = FollowedChannel(ref: ChannelRef(path: "/c/A", name: "A"), lastActivity: nil, liveViewers: 100, followers: nil)
+        let b = FollowedChannel(ref: ChannelRef(path: "/c/B", name: "B"), lastActivity: nil, liveViewers: 5, followers: nil)
+        let c = FollowedChannel(ref: ChannelRef(path: "/c/C", name: "C"), lastActivity: nil, liveViewers: 0, followers: nil)
+        let prev: Set<String> = ["/c/a"]
+        XCTAssertEqual(LiveAlertTracker.newlyLive(previous: prev, current: [a, b, c]).map(\.ref.name), ["B"])
+        XCTAssertEqual(LiveAlertTracker.liveIDs([a, b, c]), ["/c/a", "/c/b"])
+    }
+}
+
+final class TimestampTests: XCTestCase {
+    func testFindAndChapters() {
+        let t = "Skip to 1:23 or 01:02:03, not 12:345 or 2024:10 or 1:75"
+        XCTAssertEqual(Timestamps.find(in: t).map(\.seconds), [83, 3723])
+        let desc = """
+        Today's show!
+        0:00 Intro
+        2:15 - The news
+        (10:30) Interview
+        Final thoughts 45:00
+        Support us at example.com
+        """
+        let ch = Timestamps.chapters(in: desc)
+        XCTAssertEqual(ch.map(\.title), ["Intro", "The news", "Interview", "Final thoughts"])
+        XCTAssertEqual(ch.map(\.start), [0, 135, 630, 2700])
+        XCTAssertEqual(Timestamps.current(ch, at: 700)?.title, "Interview")
+        XCTAssertTrue(Timestamps.chapters(in: "Watch at 1:00 and 2:00").isEmpty, "needs 3+ chapter lines")
+    }
+}
+
+final class SearchSuggestTests: XCTestCase {
+    func testHistoryAndChannels() {
+        var lib = LibraryData()
+        lib.addSearch("timcast"); lib.addSearch("crowder"); lib.addSearch("Timcast")
+        XCTAssertEqual(lib.searchHistory, ["Timcast", "crowder"], "dedupes case-insensitively, newest first")
+        let chans = [ChannelRef(path: "/c/TimcastIRL", name: "TimcastIRL"), ChannelRef(path: "/c/Other", name: "Other")]
+        let s = SearchSuggest.items(for: "tim", history: lib.searchHistory, channels: chans)
+        XCTAssertEqual(s, [.recent("Timcast"), .channel(chans[0])])
+        XCTAssertEqual(SearchSuggest.items(for: "", history: lib.searchHistory, channels: chans), [.recent("Timcast"), .recent("crowder")])
+    }
+}

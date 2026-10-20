@@ -74,6 +74,7 @@ final class AccountStore: ObservableObject {
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.refreshStatus()
+                await self?.checkLive()
                 try? await Task.sleep(nanoseconds: 180_000_000_000)
             }
         }
@@ -207,6 +208,41 @@ final class AccountStore: ObservableObject {
         try? BGTaskScheduler.shared.submit(req)
     }
 
+    // MARK: - Went-live alerts
+
+    private static let liveKey = "liveChannelIDs"
+
+    /// Notifies about followed channels that went live since the last check (first run only records).
+    func checkLive() async {
+        guard loggedIn, LibraryStore.shared.data.prefs.liveAlerts,
+              let chans = try? await RumbleService.shared.followedChannels() else { return }
+        let stored = UserDefaults.standard.stringArray(forKey: Self.liveKey)
+        let now = LiveAlertTracker.liveIDs(chans)
+        UserDefaults.standard.set(Array(now), forKey: Self.liveKey)
+        guard let stored else { return }
+        let fresh = LiveAlertTracker.newlyLive(previous: Set(stored), current: chans)
+        for c in fresh.prefix(3) {
+            let content = UNMutableNotificationContent()
+            content.title = "\(c.ref.name) is live"
+            content.body = c.liveViewers.map { "\(CountFormat.short($0)) watching now. Tap to join." } ?? "Tap to join the stream."
+            content.sound = .default
+            content.threadIdentifier = "live"
+            content.userInfo = ["channelPath": c.ref.path, "channelName": c.ref.name]
+            try? await UNUserNotificationCenter.current().add(
+                UNNotificationRequest(identifier: "live-\(c.id)", content: content, trigger: nil))
+        }
+    }
+
+    func setLiveAlerts(_ on: Bool) async {
+        if on {
+            let granted = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound])) ?? false
+            LibraryStore.shared.data.prefs.liveAlerts = granted
+            if granted { UserDefaults.standard.removeObject(forKey: Self.liveKey); await checkLive(); Self.scheduleRefresh() }
+        } else {
+            LibraryStore.shared.data.prefs.liveAlerts = false
+        }
+    }
+
     /// Called from the background refresh task.
     func backgroundCheck() async {
         let wasUnread = hasUnread
@@ -220,6 +256,7 @@ final class AccountStore: ObservableObject {
             try? await UNUserNotificationCenter.current().add(
                 UNNotificationRequest(identifier: "rumble-unread", content: content, trigger: nil))
         }
-        if alertsEnabled { Self.scheduleRefresh() }
+        await checkLive()
+        if alertsEnabled || LibraryStore.shared.data.prefs.liveAlerts { Self.scheduleRefresh() }
     }
 }

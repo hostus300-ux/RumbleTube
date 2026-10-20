@@ -215,3 +215,81 @@ enum ForYouRanker {
         return TrendingRanker.diversify(ranked)
     }
 }
+
+// MARK: - Went-live alerts
+
+enum LiveAlertTracker {
+    /// Channels that are live now but weren't at the last check. `previous` holds channel ids.
+    static func newlyLive(previous: Set<String>, current: [FollowedChannel]) -> [FollowedChannel] {
+        current.filter { $0.isLive && !previous.contains($0.id) }
+    }
+    static func liveIDs(_ c: [FollowedChannel]) -> Set<String> { Set(c.filter(\.isLive).map(\.id)) }
+}
+
+// MARK: - Timestamps & chapters in descriptions and comments
+
+struct Chapter: Hashable {
+    var start: Double
+    var title: String
+}
+
+enum Timestamps {
+    private static let re = try! NSRegularExpression(pattern: #"(?<![\d:])(?:(\d{1,2}):)?(\d{1,2}):(\d{2})(?![\d:])"#)
+
+    /// Every "1:23" / "01:02:03" in the text with its time in seconds.
+    static func find(in text: String) -> [(range: Range<String.Index>, seconds: Double)] {
+        let ns = NSRange(text.startIndex..., in: text)
+        return re.matches(in: text, range: ns).compactMap { m in
+            guard let r = Range(m.range, in: text) else { return nil }
+            func g(_ i: Int) -> Double? { Range(m.range(at: i), in: text).flatMap { Double(text[$0]) } }
+            guard let mm = g(2), let ss = g(3), ss < 60 else { return nil }
+            let hh = g(1) ?? 0
+            if hh > 0 && mm >= 60 { return nil }
+            return (r, hh * 3600 + mm * 60 + ss)
+        }
+    }
+
+    /// Chapters: at least 3 lines that start (or end) with a timestamp, in increasing order.
+    static func chapters(in description: String, duration: Double? = nil) -> [Chapter] {
+        var out: [Chapter] = []
+        for raw in description.components(separatedBy: .newlines) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            guard let hit = find(in: line).first else { continue }
+            let atStart = line[..<hit.range.lowerBound].trimmingCharacters(in: CharacterSet(charactersIn: " -–•([")).isEmpty
+            let atEnd = line[hit.range.upperBound...].trimmingCharacters(in: CharacterSet(charactersIn: " )]")).isEmpty
+            guard atStart || atEnd else { continue }
+            var title = atStart ? String(line[hit.range.upperBound...]) : String(line[..<hit.range.lowerBound])
+            title = title.trimmingCharacters(in: CharacterSet(charactersIn: " -–—:|•)]("))
+            guard !title.isEmpty else { continue }
+            if let d = duration, d > 0, hit.seconds >= d { continue }
+            out.append(Chapter(start: hit.seconds, title: title))
+        }
+        guard out.count >= 3, zip(out, out.dropFirst()).allSatisfy({ $0.start < $1.start }) else { return [] }
+        return out
+    }
+
+    static func current(_ chapters: [Chapter], at t: Double) -> Chapter? {
+        chapters.last { $0.start <= t + 0.5 }
+    }
+}
+
+// MARK: - Search suggestions
+
+enum SearchSuggest {
+    enum Item: Hashable { case recent(String), channel(ChannelRef) }
+
+    /// While typing: matching past searches first, then matching channels you follow. Empty text: recent searches.
+    static func items(for text: String, history: [String], channels: [ChannelRef], limit: Int = 8) -> [Item] {
+        let q = text.trimmingCharacters(in: .whitespaces).lowercased()
+        if q.isEmpty { return history.prefix(limit).map(Item.recent) }
+        let recent = history.filter { $0.lowercased().contains(q) && $0.lowercased() != q }
+            .sorted { ($0.lowercased().hasPrefix(q) ? 0 : 1) < ($1.lowercased().hasPrefix(q) ? 0 : 1) }
+            .prefix(5).map(Item.recent)
+        var seen = Set<String>()
+        let chans = channels.filter { c in
+            (c.name.lowercased().contains(q) || c.path.lowercased().contains(q)) && seen.insert(c.id).inserted
+        }
+        .prefix(4).map(Item.channel)
+        return Array((recent + chans).prefix(limit))
+    }
+}

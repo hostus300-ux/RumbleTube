@@ -49,7 +49,57 @@ struct PlayerScreen: View {
         return d.chat
     }
 
+    @Environment(\.horizontalSizeClass) private var hsc
+
     var body: some View {
+        applySheets(
+            Group {
+                if hsc == .regular { wideLayout } else { phoneLayout }
+            }
+            .task(id: liveChat) {
+                if let c = liveChat { chat.start(c) } else { chat.stop() }
+            }
+            .onDisappear { chat.stop() }
+            .background(Color(.systemBackground))
+        )
+    }
+
+    /// iPad / wide windows: video and details on the left, live chat (or More from) on the right.
+    private var wideLayout: some View {
+        VStack(spacing: 0) {
+            Capsule().fill(Color.secondary.opacity(0.4)).frame(width: 40, height: 5).padding(.vertical, 6)
+            HStack(alignment: .top, spacing: 0) {
+                VStack(spacing: 0) {
+                    videoArea
+                    ScrollView { details.padding(.bottom, 40) }
+                }
+                .frame(maxWidth: .infinity)
+                Divider()
+                Group {
+                    if liveChat != nil {
+                        VStack(spacing: 0) {
+                            Text("Live chat").font(.headline).frame(maxWidth: .infinity, alignment: .leading).padding(12)
+                            LiveChatView(chat: chat, videoURL: player.detail.flatMap { URL(string: $0.url) },
+                                         channel: player.detail?.channel ?? player.item?.channel)
+                        }
+                    } else {
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: 12) {
+                                Text("More from \(player.detail?.channel?.name ?? "this channel")").font(.headline)
+                                ForEach(more.filter { $0.id != player.item?.id }.prefix(20)) { v in
+                                    Button { player.play(v) } label: { VideoRow(item: v) }.buttonStyle(.plain)
+                                }
+                            }
+                            .padding(12)
+                        }
+                    }
+                }
+                .frame(width: 380)
+            }
+        }
+    }
+
+    private var phoneLayout: some View {
         VStack(spacing: 0) {
             Capsule().fill(Color.secondary.opacity(0.4)).frame(width: 40, height: 5).padding(.vertical, 6)
             videoArea
@@ -68,11 +118,10 @@ struct PlayerScreen: View {
                 ScrollView { details.padding(.bottom, 40) }
             }
         }
-        .task(id: liveChat) {
-            if let c = liveChat { chat.start(c) } else { chat.stop() }
-        }
-        .onDisappear { chat.stop() }
-        .background(Color(.systemBackground))
+    }
+
+    private func applySheets<V: View>(_ v: V) -> some View {
+        v
         .sheet(isPresented: $showSkipPanel) {
             SkipPanel().environmentObject(player).environmentObject(library)
         }
@@ -94,7 +143,8 @@ struct PlayerScreen: View {
             FullscreenPlayer().environmentObject(player).environmentObject(library)
         }
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
-            guard library.data.prefs.rotateToFullscreen, player.stream != nil else { return }
+            guard library.data.prefs.rotateToFullscreen, player.stream != nil,
+                  UIDevice.current.userInterfaceIdiom != .pad else { return }
             let o = UIDevice.current.orientation
             if o.isLandscape, !player.fullscreen { player.fullscreen = true }
             else if o == .portrait, player.fullscreen { player.fullscreen = false }
@@ -126,7 +176,27 @@ struct PlayerScreen: View {
             if let c = d?.channel ?? item?.channel { channelRow(c, followers: d?.channelFollowers) }
             if let desc = d?.description, !desc.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(desc).font(.footnote).lineLimit(expandedDescription ? nil : 3)
+                    if !player.chapters.isEmpty && expandedDescription == false {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(player.chapters, id: \.self) { c in
+                                    Button { player.seek(to: c.start) } label: {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(TimeFormat.clock(c.start)).font(.caption2.weight(.bold)).foregroundStyle(Color.accentColor)
+                                            Text(c.title).font(.caption).lineLimit(2).multilineTextAlignment(.leading)
+                                        }
+                                        .frame(width: 130, alignment: .leading)
+                                        .padding(8)
+                                        .background(player.currentChapter == c ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.12),
+                                                    in: RoundedRectangle(cornerRadius: 8))
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                    }
+                    Text(SeekLinks.attributed(desc)).font(.footnote).lineLimit(expandedDescription ? nil : 3)
+                        .seekLinks(for: nil, player: player)
                     Button(expandedDescription ? "Show less" : "Show more") { expandedDescription.toggle() }
                         .font(.footnote.weight(.semibold))
                 }
@@ -172,6 +242,10 @@ struct PlayerScreen: View {
                     Button { library.data.toggleWatchLater(item) } label: {
                         pill(Label("Save", systemImage: library.data.inWatchLater(item.id) ? "clock.fill" : "clock"))
                     }
+                }
+                Button { player.setAudioOnly(!player.audioOnly) } label: {
+                    pill(Label("Audio only", systemImage: player.audioOnly ? "waveform.circle.fill" : "waveform"),
+                         highlight: player.audioOnly)
                 }
                 if let d, d.streams.count > 1 {
                     Menu {

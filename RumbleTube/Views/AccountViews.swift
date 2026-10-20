@@ -265,6 +265,7 @@ struct CommentsScreen: View {
     @State private var showLogin = false
     @State private var confirmDelete: RumbleComment?
     @FocusState private var composerFocused: Bool
+    @Environment(\.dismiss) private var dismissComments
 
     init(target: CommentTarget) {
         self.target = target
@@ -332,6 +333,7 @@ struct CommentsScreen: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) { composer }
         .navigationTitle("Comments")
+        .seekLinks(for: target.video, player: player, onSeek: { dismissComments() })
         .navigationBarTitleDisplayMode(.inline)
         .overlay(alignment: .top) {
             if let t = toast {
@@ -490,7 +492,7 @@ struct CommentRow: View {
                     if comment.pinned { Image(systemName: "pin.fill").font(.caption2).foregroundStyle(.secondary) }
                     Text("· \(comment.timeText)").font(.caption).foregroundStyle(.secondary)
                 }
-                Text(comment.text).font(.subheadline).textSelection(.enabled)
+                Text(SeekLinks.attributed(comment.text)).font(.subheadline).textSelection(.enabled)
                 HStack(spacing: 18) {
                     Button { onVote(1) } label: {
                         Label("\(comment.upVotes)", systemImage: myVote == 1 ? "hand.thumbsup.fill" : "hand.thumbsup")
@@ -531,6 +533,9 @@ struct AccountSettingsSection: View {
                 Toggle("Alert me about new notifications", isOn: Binding(
                     get: { account.alertsEnabled },
                     set: { v in Task { await account.setAlerts(v) } }))
+                Toggle("Alert me when channels I follow go live", isOn: Binding(
+                    get: { LibraryStore.shared.data.prefs.liveAlerts },
+                    set: { v in Task { await account.setLiveAlerts(v) } }))
                 Button("Sign out", role: .destructive) { Task { await account.signOut() } }
             } else {
                 Button("Sign in to Rumble") { showLogin = true }

@@ -29,9 +29,14 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
+        let info = response.notification.request.content.userInfo
         Task { @MainActor in
             PlayerModel.shared.expanded = false
-            Router.shared.showInbox()
+            if let path = info["channelPath"] as? String {
+                Router.shared.open(ChannelRef(path: path, name: info["channelName"] as? String ?? ""))
+            } else {
+                Router.shared.showInbox()
+            }
         }
         completionHandler()
     }
@@ -69,7 +74,8 @@ struct RumbleTubeApp: App {
             else {
                 ShortsModel.pauseAll()
                 player.savePosition(); library.saveNow()
-                if account.alertsEnabled { AccountStore.scheduleRefresh() }
+                WidgetBridge.update(force: true)
+                if account.alertsEnabled || library.data.prefs.liveAlerts { AccountStore.scheduleRefresh() }
             }
         }
     }

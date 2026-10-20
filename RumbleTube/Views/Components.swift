@@ -315,13 +315,15 @@ struct ListingView<Header: View>: View {
             LazyVStack(spacing: style == .rows ? 12 : 0) {
                 header()
                 let shown = model.items.filter(filter.keep)
-                ForEach(shown) { item in
-                    Button { player.play(item) } label: {
-                        if style == .cards { VideoCard(item: item) } else { VideoRow(item: item).padding(.horizontal, 12) }
-                    }
-                    .buttonStyle(.plain)
-                    .onAppear {
-                        if item.id == shown.last?.id { Task { await model.loadMore() } }
+                CardGrid {
+                    ForEach(shown) { item in
+                        Button { player.play(item) } label: {
+                            if style == .cards { VideoCard(item: item) } else { VideoRow(item: item).padding(.horizontal, 12) }
+                        }
+                        .buttonStyle(.plain)
+                        .onAppear {
+                            if item.id == shown.last?.id { Task { await model.loadMore() } }
+                        }
                     }
                 }
                 footer
@@ -356,5 +358,58 @@ struct ListingView<Header: View>: View {
 extension ListingView where Header == EmptyView {
     init(model: ListingModel, style: Style = .cards, filter: ContentFilter = .all) {
         self.init(model: model, style: style, filter: filter, header: { EmptyView() })
+    }
+}
+
+
+// MARK: - Tappable timestamps
+
+enum SeekLinks {
+    static let scheme = "rumbletube-seek"
+
+    /// Turns "12:34" in text into links that seek the player.
+    static func attributed(_ text: String) -> AttributedString {
+        var a = AttributedString(text)
+        for hit in Timestamps.find(in: text) {
+            guard let lo = AttributedString.Index(hit.range.lowerBound, within: a),
+                  let hi = AttributedString.Index(hit.range.upperBound, within: a) else { continue }
+            a[lo..<hi].link = URL(string: "\(scheme)://t/\(Int(hit.seconds))")
+            a[lo..<hi].foregroundColor = .accentColor
+        }
+        return a
+    }
+
+    static func seconds(_ url: URL) -> Double? {
+        url.scheme == scheme ? Double(url.lastPathComponent) : nil
+    }
+}
+
+extension View {
+    /// Handles taps on timestamp links: seeks `video` (opening it first if something else is playing).
+    func seekLinks(for video: VideoItem?, player: PlayerModel, onSeek: (() -> Void)? = nil) -> some View {
+        environment(\.openURL, OpenURLAction { url in
+            guard let t = SeekLinks.seconds(url) else { return .systemAction }
+            if let v = video, player.item?.id != v.id { player.play(v, at: t) } else { player.seek(to: t) }
+            player.expanded = true
+            onSeek?()
+            return .handled
+        })
+    }
+}
+
+
+/// Cards in one column on iPhone, an adaptive grid on iPad / wide windows.
+struct CardGrid<Content: View>: View {
+    @Environment(\.horizontalSizeClass) private var hsc
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        if hsc == .regular {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 320, maximum: 520), spacing: 14, alignment: .top)],
+                      alignment: .leading, spacing: 4) { content() }
+                .padding(.horizontal, 8)
+        } else {
+            content()
+        }
     }
 }

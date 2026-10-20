@@ -125,7 +125,9 @@ struct PlayerStage: View {
             Color.black
             if player.stream != nil, player.error == nil {
                 PlayerSurface(player: player.player, fill: player.zoomFill, enablePiP: !isFullscreen)
+                    .opacity(player.audioOnly ? 0 : 1)
             }
+            if player.audioOnly { audioOnlyArt }
             gestureLayer
             if let error = player.error { errorView(error) }
             else if player.loading || player.stream == nil { ProgressView().tint(.white) }
@@ -156,6 +158,23 @@ struct PlayerStage: View {
         }
         .onChange(of: player.isPlaying) { playing in if playing { scheduleHide() } else { show() } }
         .onAppear { scheduleHide() }
+    }
+
+    private var audioOnlyArt: some View {
+        ZStack {
+            if let t = player.detail?.thumbnail ?? player.item?.thumbnail, let u = URL(string: t) {
+                AsyncImage(url: u) { $0.image?.resizable().scaledToFill() }.blur(radius: 18).opacity(0.55)
+            }
+            VStack(spacing: 8) {
+                Image(systemName: "waveform").font(.system(size: 34, weight: .semibold))
+                Text("Audio only").font(.caption.weight(.bold))
+                Button("Show video") { player.setAudioOnly(false) }
+                    .font(.caption.weight(.semibold)).buttonStyle(.bordered).tint(.white)
+            }
+            .foregroundStyle(.white)
+        }
+        .clipped()
+        .allowsHitTesting(true)
     }
 
     // MARK: gestures
@@ -310,6 +329,9 @@ struct PlayerStage: View {
                 } else {
                     Text("\(TimeFormat.clock(scrubbing ?? player.currentTime)) / \(TimeFormat.clock(player.duration))")
                         .font(.caption.weight(.medium)).monospacedDigit()
+                    if let c = Timestamps.current(player.chapters, at: scrubbing ?? player.currentTime) {
+                        Text("· \(c.title)").font(.caption.weight(.medium)).lineLimit(1)
+                    }
                 }
                 Spacer()
                 Button { player.fullscreen.toggle() } label: {
@@ -338,6 +360,11 @@ struct PlayerStage: View {
                 Capsule().fill(Color.white.opacity(0.3)).frame(height: 4)
                 Capsule().fill(player.isLive ? Color.red : Color.accentColor).frame(width: g.size.width * f, height: 4)
                 if !player.isLive {
+                    // chapter boundaries: small gaps in the bar
+                    ForEach(player.chapters.dropFirst(), id: \.self) { c in
+                        Rectangle().fill(Color.black.opacity(0.85)).frame(width: 2, height: 6)
+                            .offset(x: g.size.width * c.start / span - 1)
+                    }
                     ForEach(player.segments.filter { library.data.skip.action(for: $0.category) != .off }) { s in
                         Rectangle().fill(s.category.color)
                             .frame(width: max(2, g.size.width * (s.end - s.start) / span), height: 4)

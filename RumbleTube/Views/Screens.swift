@@ -165,6 +165,8 @@ struct SettingsView: View {
                     ForEach(qualities.indices, id: \.self) { i in Text(qualities[i].0).tag(qualities[i].1 ?? 0) }
                 }
                 Toggle("Rotate phone for fullscreen", isOn: pref(\.rotateToFullscreen))
+                Toggle("Audio only (saves data)", isOn: Binding(get: { library.data.prefs.audioOnly },
+                                                               set: { PlayerModel.shared.setAudioOnly($0) }))
             } header: { Text("Player") }
 
             if library.data.prefs.visibleTabs.contains(.shorts) {
