@@ -80,6 +80,7 @@ struct RootView: View {
     @State private var splashGone = false
 
     private var prefs: AppPreferences { library.data.prefs }
+    private var useAccessory: Bool { GlassUI.accessoryAvailable && prefs.liquidGlass }
     private var scheme: ColorScheme? { prefs.theme == .system ? nil : (prefs.theme == .dark ? .dark : .light) }
 
     var body: some View {
@@ -90,6 +91,7 @@ struct RootView: View {
             }
         }
         .environmentObject(shorts)
+        .miniPlayerAccessory(enabled: useAccessory && player.item != nil && !player.expanded && router.tab != .shorts)
         .minimizingTabBar()
         .overlay {
             if !splashGone {
@@ -146,7 +148,7 @@ struct RootView: View {
                 .navigationDestination(for: CommentTarget.self) { CommentsScreen(target: $0).miniPlayerSpace() }
                 .navigationDestination(for: AppRoute.self) { $0.screen }
         }
-        .overlay(alignment: .bottom) { if t != .shorts { MiniPlayer() } }
+        .overlay(alignment: .bottom) { if t != .shorts && !useAccessory { MiniPlayer() } }
         .tabItem { Label(t.title, systemImage: t.icon) }
         .tag(t)
     }

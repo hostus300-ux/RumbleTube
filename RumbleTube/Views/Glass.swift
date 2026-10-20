@@ -12,6 +12,15 @@ enum GlassUI {
         return false
     }
     @MainActor static var enabled: Bool { available && LibraryStore.shared.data.prefs.liquidGlass }
+
+    /// iOS 26.1+: the mini player lives in the tab bar (like Apple Music) instead of floating over content.
+    static var accessoryAvailable: Bool {
+        #if compiler(>=6.2)
+        if #available(iOS 26.1, *) { return true }
+        #endif
+        return false
+    }
+    @MainActor static var usesAccessory: Bool { accessoryAvailable && LibraryStore.shared.data.prefs.liquidGlass }
 }
 
 private struct GlassShape<S: Shape>: ViewModifier {
@@ -63,6 +72,18 @@ extension View {
     @ViewBuilder func glassGroup(spacing: CGFloat = 8) -> some View {
         #if compiler(>=6.2)
         if #available(iOS 26.0, *) { GlassEffectContainer(spacing: spacing) { self } } else { self }
+        #else
+        self
+        #endif
+    }
+
+    /// iOS 26.1+: dock the mini player in the tab bar. It sits above the tabs, and moves inline beside the
+    /// collapsed tab button while scrolling (Apple Music behaviour).
+    @ViewBuilder func miniPlayerAccessory(enabled: Bool) -> some View {
+        #if compiler(>=6.2)
+        if #available(iOS 26.1, *) {
+            self.tabViewBottomAccessory(isEnabled: enabled) { MiniPlayerAccessory() }
+        } else { self }
         #else
         self
         #endif

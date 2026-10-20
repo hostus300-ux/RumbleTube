@@ -1,6 +1,6 @@
 # RumbleTube
 
-[**⬇︎ Download the latest IPA**](https://github.com/hostus300-ux/RumbleTube/releases/download/latest/RumbleTube.ipa) · current version 0.8.1
+[**⬇︎ Download the latest IPA**](https://github.com/hostus300-ux/RumbleTube/releases/download/latest/RumbleTube.ipa) · current version 0.8.2
 
 An unofficial iPhone client for Rumble that works like the YouTube app, with **RumbleSkip** (SponsorBlock-style skipping) built in. On your home screen it shows up as **Rumble**.
 
@@ -44,7 +44,7 @@ An unofficial iPhone client for Rumble that works like the YouTube app, with **R
   - Pinch to zoom.
 - Picture-in-Picture, AirPlay, background audio and lock-screen controls.
 - Quality picker, playback speed, and resume where you left off.
-- Mini player: swipe the player down and keep browsing.
+- Mini player: swipe the player down and keep browsing. On iOS 26.1+ it docks in the tab bar like Apple Music: above the tabs normally, then beside the shrunken tab bar as you scroll.
 - **Live streams:** you can rewind live streams. Drag the red bar or double-tap to go back. While you're behind, it shows how far back you are, e.g. "-2:15". Tap **LIVE** to jump back to the live edge.
 
 **RumbleSkip**

@@ -285,3 +285,60 @@ struct MiniPlayer: View {
             })
     }
 }
+
+
+// MARK: - Mini player docked in the tab bar (iOS 26.1+, Apple Music style)
+
+#if compiler(>=6.2)
+@available(iOS 26.0, *)
+struct MiniPlayerAccessory: View {
+    @EnvironmentObject var player: PlayerModel
+    @Environment(\.tabViewBottomAccessoryPlacement) private var placement
+
+    var body: some View {
+        if let item = player.item {
+            let inline = placement == .inline
+            HStack(spacing: 10) {
+                Thumbnail(item: item)
+                    .frame(width: inline ? 40 : 52)
+                    .clipShape(RoundedRectangle(cornerRadius: inline ? 6 : 8))
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(player.detail?.title ?? item.title).font(.footnote.weight(.semibold)).lineLimit(1)
+                    Text(player.detail?.channel?.name ?? item.channelName ?? "")
+                        .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                Button { if player.miniPlayerArmed { player.togglePlay() } } label: {
+                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").font(.title3)
+                        .frame(width: 36, height: 36).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                if !inline {
+                    Button { if player.miniPlayerArmed { player.close() } } label: {
+                        Image(systemName: "xmark").font(.body.weight(.semibold))
+                            .frame(width: 32, height: 36).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.leading, 6).padding(.trailing, 10)
+            .overlay(alignment: .bottom) {
+                GeometryReader { g in
+                    Capsule().fill(Color.rumbleGreen)
+                        .frame(width: player.duration > 0 ? g.size.width * min(1, player.currentTime / player.duration) : 0, height: 2)
+                }
+                .frame(height: 2)
+                .padding(.horizontal, 14)
+                .opacity(player.isLive ? 0 : 1)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { if player.miniPlayerArmed { player.expanded = true } }
+            .gesture(DragGesture(minimumDistance: 20).onEnded { v in
+                if v.translation.height < -30 { player.expanded = true }
+            })
+        }
+    }
+}
+#else
+struct MiniPlayerAccessory: View { var body: some View { EmptyView() } }
+#endif
