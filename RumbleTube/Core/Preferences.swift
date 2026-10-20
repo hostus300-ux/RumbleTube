@@ -3,7 +3,7 @@ import Foundation
 // MARK: - Tabs
 
 enum AppTab: String, Codable, CaseIterable, Identifiable {
-    case home, shorts
+    case home, shorts, create
     case myFeed = "my-feed"
     case account
     var id: String { rawValue }
@@ -11,6 +11,7 @@ enum AppTab: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .home: return "Home"
         case .shorts: return "Shorts"
+        case .create: return "Create"
         case .myFeed: return "My Feed"
         case .account: return "Account"
         }
@@ -19,6 +20,7 @@ enum AppTab: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .home: return "house"
         case .shorts: return "play.rectangle.on.rectangle"
+        case .create: return "plus.app"
         case .myFeed: return "rectangle.stack.badge.play"
         case .account: return "person.crop.circle"
         }
@@ -140,7 +142,12 @@ struct AppPreferences: Codable, Equatable {
     var normalizedTabs: [TabSetting] {
         var seen = Set<AppTab>()
         var out = tabs.filter { seen.insert($0.tab).inserted }
-        for t in AppTab.allCases where !seen.contains(t) { out.append(TabSetting(tab: t, enabled: true)) }
+        // Tabs added in an update go in their default spot (e.g. Create after Shorts), not at the end.
+        for (i, t) in AppTab.allCases.enumerated() where !seen.contains(t) {
+            let before = AppTab.allCases.prefix(i)
+            let at = (out.lastIndex { before.contains($0.tab) }).map { $0 + 1 } ?? 0
+            out.insert(TabSetting(tab: t, enabled: true), at: at)
+        }
         return out.map { $0.tab.required ? TabSetting(tab: $0.tab, enabled: true) : $0 }
     }
 

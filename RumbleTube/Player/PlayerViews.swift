@@ -62,7 +62,8 @@ struct PlayerScreen: View {
                 .padding(.horizontal, 14).padding(.vertical, 8)
             }
             if liveChat != nil && showChat {
-                LiveChatView(chat: chat)
+                LiveChatView(chat: chat, videoURL: player.detail.flatMap { URL(string: $0.url) },
+                             channel: player.detail?.channel ?? player.item?.channel)
             } else {
                 ScrollView { details.padding(.bottom, 40) }
             }

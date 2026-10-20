@@ -120,6 +120,7 @@ struct RootView: View {
         switch t {
         case .home: HomeScreen()
         case .shorts: ShortsView()
+        case .create: CreateScreen()
         case .myFeed: MyFeedScreen()
         case .account: AccountScreen()
         }

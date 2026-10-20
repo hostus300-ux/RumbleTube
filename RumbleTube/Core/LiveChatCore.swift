@@ -21,17 +21,57 @@ struct ChatMessage: Identifiable, Hashable {
 struct ChatConfig: Hashable {
     var apiBase: String     // e.g. https://web7.rumble.com/chat/api
     var chatID: String      // the video's numeric id
+    /// Where paid rants are posted (Rumble's second RumbleChat argument).
+    var rantsBase: String? = nil
+    var rantLevels: [RantLevel] = RantLevel.defaults
+}
+
+/// A rant price tier: dollars and how long it stays pinned.
+struct RantLevel: Hashable, Identifiable {
+    var dollars: Int
+    var seconds: Int
+    var id: Int { dollars }
+    var cents: Int { dollars * 100 }
+
+    static let defaults: [RantLevel] = [[1, 120], [2, 180], [5, 300], [10, 600], [20, 1200], [50, 2400],
+                                        [100, 3600], [200, 7200], [300, 10800], [400, 14400], [500, 18000]]
+        .map { RantLevel(dollars: $0[0], seconds: $0[1]) }
+
+    /// Rumble's tier colours ($1 blue … $100+ red) as hex, and whether text on it should be dark.
+    var colorHex: UInt32 {
+        switch dollars {
+        case ..<2: return 0x4A90E2
+        case ..<5: return 0xB8E986
+        case ..<10: return 0xF8E71C
+        case ..<20: return 0xF5A623
+        case ..<50: return 0xBD10E0
+        case ..<100: return 0x9013FE
+        default: return 0xD0021B
+        }
+    }
+    var darkText: Bool { (2..<20).contains(dollars) }
+
+    var durationText: String {
+        seconds >= 3600 ? "\(seconds / 3600) hour\(seconds >= 7200 ? "s" : "")" : "\(seconds / 60) minutes"
+    }
 }
 
 /// Parses Rumble's live chat: the watch page config and the server-sent-event stream.
 enum LiveChatParser {
     /// `RumbleChat("https://web7.rumble.com/chat/api", "https://…/chat/api", 448347576, …)` on the watch page.
     static func config(fromWatchPage html: String) -> ChatConfig? {
-        let pattern = #"RumbleChat\(\s*"([^"]+)"\s*,\s*"[^"]*"\s*,\s*(\d+)"#
+        let pattern = #"RumbleChat\(\s*"([^"]+)"\s*,\s*"([^"]*)"\s*,\s*(\d+)\s*,\s*\d+\s*,\s*(\[\[[\d,\[\]\s]*\]\])?"#
         guard let re = try? NSRegularExpression(pattern: pattern),
               let m = re.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
-              let api = Range(m.range(at: 1), in: html), let id = Range(m.range(at: 2), in: html) else { return nil }
-        return ChatConfig(apiBase: String(html[api]), chatID: String(html[id]))
+              let api = Range(m.range(at: 1), in: html), let id = Range(m.range(at: 3), in: html) else { return nil }
+        var c = ChatConfig(apiBase: String(html[api]), chatID: String(html[id]))
+        if let r = Range(m.range(at: 2), in: html), !html[r].isEmpty { c.rantsBase = String(html[r]) }
+        if let r = Range(m.range(at: 4), in: html),
+           let arr = try? JSONSerialization.jsonObject(with: Data(html[r].utf8)) as? [[Int]] {
+            let levels = arr.compactMap { $0.count >= 2 ? RantLevel(dollars: $0[0], seconds: $0[1]) : nil }
+            if !levels.isEmpty { c.rantLevels = levels }
+        }
+        return c
     }
 
     static func streamURL(_ c: ChatConfig) -> URL { URL(string: "\(c.apiBase)/chat/\(c.chatID)/stream")! }
@@ -75,6 +115,20 @@ enum LiveChatParser {
         r.setValue("https://rumble.com/", forHTTPHeaderField: "Referer")
         let body: [String: Any] = ["data": ["request_id": requestID, "message": ["text": text],
                                             "rant": NSNull(), "channel_id": NSNull()]]
+        r.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        return r
+    }
+
+    /// Paid rant from the signed-in user's Rumble Wallet (same request Rumble's web chat sends).
+    static func rantRequest(_ c: ChatConfig, text: String, cents: Int, requestID: String = UUID().uuidString) -> URLRequest {
+        var r = URLRequest(url: URL(string: "\(c.rantsBase ?? c.apiBase)/chat/\(c.chatID)/message")!)
+        r.httpMethod = "POST"
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.setValue("https://rumble.com", forHTTPHeaderField: "Origin")
+        r.setValue("https://rumble.com/", forHTTPHeaderField: "Referer")
+        let body: [String: Any] = ["data": ["request_id": requestID, "message": ["text": text],
+                                            "rant": ["payment_type": "rumble-wallet", "price_cents": cents],
+                                            "channel_id": NSNull()]]
         r.httpBody = try? JSONSerialization.data(withJSONObject: body)
         return r
     }

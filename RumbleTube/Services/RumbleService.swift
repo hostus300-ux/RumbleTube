@@ -163,7 +163,10 @@ final class RumbleService {
         if detail.channel == nil, let c = item.channel { detail.channel = c }
         if detail.channel?.avatar == nil { detail.channel?.avatar = item.channelAvatar }
         if detail.thumbnail == nil { detail.thumbnail = item.thumbnail }
-        if let chat = LiveChatParser.config(fromWatchPage: html) { detail.chatAPI = chat.apiBase; detail.chatID = chat.chatID }
+        if let chat = LiveChatParser.config(fromWatchPage: html) {
+            detail.chatAPI = chat.apiBase; detail.chatID = chat.chatID; detail.rantsAPI = chat.rantsBase
+            detail.rantLevels = chat.rantLevels.map { [$0.dollars, $0.seconds] }
+        }
         detailCache[item.id] = detail
         return detail
     }

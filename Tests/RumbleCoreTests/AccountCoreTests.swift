@@ -305,9 +305,19 @@ final class ChannelSearchTests: XCTestCase {
 
 final class LiveChatTests: XCTestCase {
     func testConfigFromWatchPage() {
-        let html = "x RumbleChat(\n\t\"https://web7.rumble.com/chat/api\",\n\t\"https://web7.rumble.com/chat/api\",\n\t448347576,\n\t10000001, [])"
+        let html = "x RumbleChat(\n\t\"https://web7.rumble.com/chat/api\",\n\t\"https://rants.example/chat/api\",\n\t448347576,\n\t10000001,\n\t[[1,120],[2,180],[5,300]],\n\t0)"
         let c = LiveChatParser.config(fromWatchPage: html)
-        XCTAssertEqual(c, ChatConfig(apiBase: "https://web7.rumble.com/chat/api", chatID: "448347576"))
+        XCTAssertEqual(c?.apiBase, "https://web7.rumble.com/chat/api")
+        XCTAssertEqual(c?.chatID, "448347576")
+        XCTAssertEqual(c?.rantsBase, "https://rants.example/chat/api")
+        XCTAssertEqual(c?.rantLevels.map(\.dollars), [1, 2, 5])
+        XCTAssertEqual(c?.rantLevels[2].durationText, "5 minutes")
+        let r = LiveChatParser.rantRequest(c!, text: "hey", cents: 500, requestID: "q")
+        XCTAssertEqual(r.url?.absoluteString, "https://rants.example/chat/api/chat/448347576/message")
+        let body = try! JSONSerialization.jsonObject(with: r.httpBody!) as! [String: Any]
+        let rant = (body["data"] as! [String: Any])["rant"] as! [String: Any]
+        XCTAssertEqual(rant["price_cents"] as? Int, 500)
+        XCTAssertEqual(rant["payment_type"] as? String, "rumble-wallet")
         XCTAssertEqual(LiveChatParser.streamURL(c!).absoluteString, "https://web7.rumble.com/chat/api/chat/448347576/stream")
         XCTAssertNil(LiveChatParser.config(fromWatchPage: "<html></html>"))
     }

@@ -105,9 +105,13 @@ struct VideoDetail: Codable, Hashable {
     /// Live chat endpoint from the watch page.
     var chatAPI: String? = nil
     var chatID: String? = nil
+    var rantsAPI: String? = nil
+    var rantLevels: [[Int]]? = nil
     var chat: ChatConfig? {
         guard let a = chatAPI, let i = chatID else { return nil }
-        return ChatConfig(apiBase: a, chatID: i)
+        var c = ChatConfig(apiBase: a, chatID: i, rantsBase: rantsAPI)
+        if let l = rantLevels, !l.isEmpty { c.rantLevels = l.map { RantLevel(dollars: $0[0], seconds: $0[1]) } }
+        return c
     }
 
     /// Best default: adaptive HLS, else the highest MP4 up to 1080p.

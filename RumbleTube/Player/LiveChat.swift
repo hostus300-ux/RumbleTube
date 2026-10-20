@@ -64,6 +64,22 @@ final class LiveChatModel: ObservableObject {
         if messages.count > maxMessages { messages.removeFirst(messages.count - maxMessages) }
     }
 
+    /// Paid rant from the Rumble Wallet. Returns an error message, or nil when Rumble accepted it.
+    func sendRant(_ text: String, cents: Int) async -> String? {
+        guard let c = config else { return "Chat isn't connected." }
+        sending = true
+        defer { sending = false }
+        var r = LiveChatParser.rantRequest(c, text: text, cents: cents)
+        r.setValue(RumbleHTTP.userAgent, forHTTPHeaderField: "User-Agent")
+        do {
+            let (data, resp) = try await RumbleHTTP.session.data(for: r)
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            if code == 200 { return nil }
+            let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            return ((obj?["errors"] as? [[String: Any]])?.first?["message"] as? String) ?? "Rumble didn't accept the rant (\(code))."
+        } catch { return error.localizedDescription }
+    }
+
     func send(_ text: String) async -> Bool {
         guard let c = config, !text.isEmpty else { return false }
         sending = true
@@ -84,6 +100,10 @@ final class LiveChatModel: ObservableObject {
 
 struct LiveChatView: View {
     @ObservedObject var chat: LiveChatModel
+    var videoURL: URL? = nil
+    var channel: ChannelRef? = nil
+    @State private var showRant = false
+    @State private var showGift = false
     @EnvironmentObject var account: AccountStore
     @State private var draft = ""
     @State private var showLogin = false
@@ -125,18 +145,39 @@ struct LiveChatView: View {
             Divider()
             if account.loggedIn {
                 HStack(spacing: 8) {
-                    TextField("Chat…", text: $draft, axis: .vertical)
+                    ChannelAvatar(name: account.username ?? "You", url: account.avatarURL, size: 32)
+                    TextField("Add a message…", text: $draft, axis: .vertical)
                         .lineLimit(1...3)
                         .padding(.horizontal, 12).padding(.vertical, 8)
                         .background(Color.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 18))
                         .submitLabel(.send)
                         .onSubmit(send)
-                    Button(action: send) {
-                        Image(systemName: "paperplane.fill").font(.body.weight(.semibold))
+                    if !draft.trimmingCharacters(in: .whitespaces).isEmpty {
+                        Button(action: send) {
+                            Image(systemName: "paperplane.fill").font(.body.weight(.semibold)).frame(width: 36, height: 36)
+                        }
+                        .disabled(chat.sending)
+                    } else {
+                        Button { showRant = true } label: {
+                            Image(systemName: "dollarsign").font(.body.weight(.bold)).foregroundStyle(Color.rumbleGreen)
+                                .frame(width: 38, height: 38).glassCircle(tint: Color.secondary.opacity(0.25))
+                        }
+                        .accessibilityLabel("Send a Rant")
+                        .disabled(chat.config == nil)
+                        Button { showGift = true } label: {
+                            Image(systemName: "gift").font(.body.weight(.bold)).foregroundStyle(Color(hex: 0xD9474B))
+                                .frame(width: 38, height: 38).glassCircle(tint: Color.secondary.opacity(0.25))
+                        }
+                        .accessibilityLabel("Gift subs")
                     }
-                    .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty || chat.sending)
                 }
                 .padding(.horizontal, 12).padding(.vertical, 8)
+                .sheet(isPresented: $showRant) {
+                    if let c = chat.config {
+                        RantSheet(chat: chat, config: c, videoURL: videoURL).environmentObject(account)
+                    }
+                }
+                .sheet(isPresented: $showGift) { GiftSubsSheet(channel: channel, videoURL: videoURL) }
             } else {
                 Button("Sign in to chat") { showLogin = true }.font(.subheadline.weight(.semibold)).padding(10)
             }

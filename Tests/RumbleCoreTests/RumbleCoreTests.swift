@@ -182,14 +182,14 @@ final class RumbleCoreTests: XCTestCase {
         XCTAssertEqual(lib.prefs, AppPreferences())
 
         var p = AppPreferences()
-        XCTAssertEqual(p.visibleTabs, [.home, .shorts, .myFeed, .account])
+        XCTAssertEqual(p.visibleTabs, [.home, .shorts, .create, .myFeed, .account])
         p.tabs = [TabSetting(tab: .account, enabled: false), TabSetting(tab: .shorts, enabled: false),
                   TabSetting(tab: .home, enabled: true)]
-        XCTAssertEqual(p.visibleTabs, [.account, .home, .myFeed], "account forced on, order kept, missing tab appended")
+        XCTAssertEqual(p.visibleTabs, [.account, .home, .create, .myFeed], "account forced on, order kept, new tabs slotted in")
         // 0.4-era tab list (search/inbox/library no longer exist) is read leniently
         let oldPrefs = try JSONDecoder().decode(AppPreferences.self, from: Data(#"{"tabs":[{"tab":"home","enabled":true},{"tab":"search","enabled":true},{"tab":"shorts","enabled":false},{"tab":"library","enabled":true}]}"#.utf8))
         let oldTabs: [AppTab] = oldPrefs.visibleTabs
-        XCTAssertEqual(oldTabs, [AppTab.home, AppTab.myFeed, AppTab.account])
+        XCTAssertEqual(oldTabs, [AppTab.home, AppTab.create, AppTab.myFeed, AppTab.account])
         XCTAssertEqual(p.action(for: .doubleTapRight), .seekForward)
         p.gestures[PlayerGesture.doubleTapRight.rawValue] = .skipSegment
         XCTAssertEqual(p.action(for: .doubleTapRight), .skipSegment)
