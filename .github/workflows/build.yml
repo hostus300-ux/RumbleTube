@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-15
+    runs-on: macos-15-intel   # arm64 Mac runners were out of capacity
     steps:
       - uses: actions/checkout@v4
 
