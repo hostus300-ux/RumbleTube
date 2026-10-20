@@ -52,17 +52,22 @@ final class RumbleService {
     // MARK: listings (plain HTTP + parsers; the hidden web view is only a fallback)
 
     /// Fetch a rumble.com page (with the signed-in cookie when there is one) and parse its videos.
-    func listing(_ path: String, page: Int = 1, query: [URLQueryItem] = []) async throws -> ListingPage {
+    /// - allowWebView: background/bulk loads pass false so a hidden web view never starts for them.
+    func listing(_ path: String, page: Int = 1, query: [URLQueryItem] = [], allowWebView: Bool = true) async throws -> ListingPage {
         var c = URLComponents(string: "https://rumble.com" + path)!
         var q = query
         if page > 1 { q.append(URLQueryItem(name: "page", value: "\(page)")) }
         if !q.isEmpty { c.queryItems = (c.queryItems ?? []) + q }
         let url = c.url!
-        if let r = try? await RumbleHTTP.get(url), r.1 == 200,
-           let parsed = try? ListingParser.parse(String(decoding: r.0, as: UTF8.self), url: url),
+        let r = try await RumbleHTTP.get(url)
+        // Refused or missing (403/404/…): a web view would be refused too, so don't spend seconds starting one.
+        guard r.1 == 200 else { throw RumbleError.http(r.1) }
+        if let parsed = try? ListingParser.parse(String(decoding: r.0, as: UTF8.self), url: url),
            !parsed.items.isEmpty || parsed.channel != nil {
             return parsed
         }
+        // Page loaded but our parser found nothing: Rumble probably changed its markup.
+        guard allowWebView else { throw RumbleError.noVideo }
         DiagLog.shared.log("parse", "listing fell back to web view: \(url.path)")
         return try await PageExtractor.shared.extract(url)
     }
@@ -111,7 +116,7 @@ final class RumbleService {
         await withTaskGroup(of: (Int, HomeRow?).self) { g in
             for (i, s) in sources.enumerated() {
                 g.addTask { @MainActor in
-                    guard let page = try? await self.listing(s.path), !page.items.isEmpty else { return (i, nil) }
+                    guard let page = try? await self.listing(s.path, allowWebView: false), !page.items.isEmpty else { return (i, nil) }
                     let items = page.items.filter { $0.isShort != true }.map { v -> VideoItem in
                         var v = v; if s.path.hasPrefix("/category/") { v.category = s.title }; return v
                     }

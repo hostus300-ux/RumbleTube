@@ -59,12 +59,12 @@ final class DiscoverModel: ObservableObject {
         await withTaskGroup(of: (Bool, [VideoItem]).self) { g in
             for s in sources.prefix(10) {
                 g.addTask { @MainActor in
-                    let page = try? await svc.listing(s.path)
+                    let page = try? await svc.listing(s.path, allowWebView: false)
                     return (false, (page?.items ?? []).map { var v = $0; if v.category == nil { v.category = s.category }; return v })
                 }
             }
             for n in 1...2 {
-                g.addTask { @MainActor in (true, (try? await svc.listing("/browse/live", page: n))?.items ?? []) }
+                g.addTask { @MainActor in (true, (try? await svc.listing("/browse/live", page: n, allowWebView: false))?.items ?? []) }
             }
             for await (isLive, got) in g { if isLive { liveItems += got } else { items += got } }
         }
