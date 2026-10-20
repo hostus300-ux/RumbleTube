@@ -58,16 +58,39 @@ struct LoginWebView: UIViewRepresentable {
     /// "Reject All" (only essential cookies, which sign-in needs) and hides it, on every page of the flow.
     static let cookieBannerScript = """
     (function () {
+      // Hide the known consent tools right away (OneTrust and similar).
       var css = document.createElement('style');
-      css.textContent = '#onetrust-consent-sdk,#onetrust-banner-sdk,.onetrust-pc-dark-filter,#ot-sdk-btn-floating{display:none!important}' +
-                        'body{overflow:auto!important}';
+      css.textContent = '#onetrust-consent-sdk,#onetrust-banner-sdk,.onetrust-pc-dark-filter,#ot-sdk-btn-floating,' +
+        '#usercentrics-root,#CybotCookiebotDialog,.fc-consent-root,#qc-cmp2-container{display:none!important}' +
+        'html,body{overflow:auto!important}';
       (document.head || document.documentElement).appendChild(css);
+      function reject() {
+        // Any consent dialog: press its "Reject All" button (keeps only the cookies sign-in needs).
+        var btns = document.querySelectorAll('button, a, [role=button]');
+        for (var i = 0; i < btns.length; i++) {
+          var t = (btns[i].innerText || btns[i].textContent || '').trim().toLowerCase();
+          if (t === 'reject all' || t === 'reject all cookies' || t === 'decline all' || t === 'only necessary') {
+            btns[i].click();
+            return true;
+          }
+        }
+        return false;
+      }
+      function hide() {
+        // Fallback: hide any fixed overlay that is a cookie notice.
+        var all = document.querySelectorAll('div, section, aside, dialog');
+        for (var i = 0; i < all.length; i++) {
+          var el = all[i], cs = getComputedStyle(el);
+          if ((cs.position === 'fixed' || cs.position === 'sticky') &&
+              /we value your privacy|cookie/i.test((el.innerText || '').slice(0, 300)) &&
+              /accept all|reject all/i.test(el.innerText || '')) { el.style.setProperty('display', 'none', 'important'); }
+        }
+      }
       var tries = 0;
-      var t = setInterval(function () {
-        var b = document.getElementById('onetrust-reject-all-handler') ||
-                document.querySelector('#onetrust-banner-sdk button.ot-pc-refuse-all-handler, .ot-pc-refuse-all-handler');
-        if (b) { b.click(); clearInterval(t); }
-        if (++tries > 40) clearInterval(t);
+      var timer = setInterval(function () {
+        tries++;
+        if (reject() || tries > 60) { clearInterval(timer); }
+        if (tries % 4 === 0) hide();
       }, 250);
     })();
     """
