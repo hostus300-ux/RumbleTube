@@ -8,6 +8,16 @@ import UIKit
 final class ShortsModel: ObservableObject {
     static let shared = ShortsModel()
 
+    enum Source { case all, following }
+    let source: Source
+    private static let instances = NSHashTable<ShortsModel>.weakObjects()
+    init(source: Source = .all) {
+        self.source = source
+        Self.instances.add(self)
+    }
+    /// Pause every Shorts feed (main tab and followed-creators) when the main player starts.
+    static func pauseAll() { instances.allObjects.forEach { $0.pauseForMainPlayer() } }
+
     @Published private(set) var items: [ShortItem] = []
     @Published var index = 0 { didSet { if index != oldValue { indexChanged(from: oldValue) } } }
     @Published private(set) var muted = false
@@ -33,16 +43,24 @@ final class ShortsModel: ObservableObject {
         loading = true
         defer { loading = false }
         do {
-            var req = ShortsParser.request(offset: offset)
+            var req = source == .all ? ShortsParser.request(offset: offset) : FollowingAPI.feedRequest(pill: "shorts", offset: offset, limit: 12)
             req.setValue(RumbleHTTP.userAgent, forHTTPHeaderField: "User-Agent")
+            if source == .following { req.setValue("https://rumble.com/subscriptions", forHTTPHeaderField: "Referer") }
             let (data, resp) = try await RumbleHTTP.session.data(for: req)
             guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw RumbleError.http((resp as? HTTPURLResponse)?.statusCode ?? 0) }
-            let page = try ShortsParser.parse(data)
+            let page: ShortsPage
+            if source == .all {
+                page = try ShortsParser.parse(data)
+            } else {
+                let f = try FollowingAPI.parseFeed(data)
+                page = ShortsPage(items: f.raw.compactMap(ShortsParser.item), hasMore: f.hasMore && !f.raw.isEmpty)
+                if page.items.isEmpty && items.isEmpty && !page.hasMore { error = "No shorts from channels you follow yet." }
+            }
             let known = Set(items.map(\.id))
             items += page.items.filter { !known.contains($0.id) }
             offset += max(page.items.count, 1)
             hasMore = page.hasMore && !page.items.isEmpty
-            error = nil
+            if !page.items.isEmpty { error = nil }
             if active { playCurrent() }
         } catch {
             self.error = error.localizedDescription
@@ -188,6 +206,7 @@ final class ShortsModel: ObservableObject {
 // MARK: - Tab
 
 struct ShortsView: View {
+    var onClose: (() -> Void)? = nil
     @EnvironmentObject var shorts: ShortsModel
     @EnvironmentObject var account: AccountStore
     @EnvironmentObject var library: LibraryStore
@@ -214,6 +233,15 @@ struct ShortsView: View {
                         .tint(Color.rumbleGreen)
                 }
                 .ignoresSafeArea(edges: .top)
+            }
+        }
+        .overlay(alignment: .topLeading) {
+            if let onClose {
+                Button(action: onClose) {
+                    Image(systemName: "chevron.left").font(.title3.weight(.semibold)).foregroundStyle(.white)
+                        .frame(width: 40, height: 40).background(.black.opacity(0.35), in: Circle())
+                }
+                .padding(.leading, 12).padding(.top, 4)
             }
         }
         .toolbar(.hidden, for: .navigationBar)

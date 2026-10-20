@@ -16,6 +16,15 @@ struct VideoItem: Codable, Hashable, Identifiable {
     var publishedText: String?
     var live: Bool?
     var upcoming: Bool?
+    /// Live viewers right now.
+    var watching: Int? = nil
+    var isShort: Bool? = nil
+    /// Where Rumble says you stopped watching (seconds).
+    var progress: Double? = nil
+    /// Rumble's numeric id (likes, comments).
+    var numericID: String? = nil
+    /// Embed id without the "v" (comment list).
+    var commentListID: String? = nil
 
     var publishedDate: Date? { published.flatMap(DateParsing.iso8601) }
     var durationSeconds: Double? { duration.flatMap(TimeFormat.parseClock) }
@@ -43,6 +52,10 @@ struct ChannelHeader: Codable, Hashable {
     var avatar: String?
     var banner: String?
     var followers: String?
+    /// Rumble's numeric channel/user id and type, used to follow/unfollow on Rumble.
+    var rumbleID: String? = nil
+    var rumbleType: String? = nil
+    var followingOnRumble: Bool? = nil
 }
 
 /// Result of extracting one listing page.

@@ -39,6 +39,7 @@ struct PlayerScreen: View {
     @State private var showComments = false
     @State private var expandedDescription = false
     @State private var more: [VideoItem] = []
+    @State private var channelAvatar: String?
     @State private var moreFor: String?
 
     var body: some View {
@@ -177,7 +178,7 @@ struct PlayerScreen: View {
         HStack(spacing: 10) {
             Button { router.open(c) } label: {
                 HStack(spacing: 10) {
-                    ChannelAvatar(name: c.name, url: c.avatar, size: 40)
+                    ChannelAvatar(name: c.name, url: c.avatar ?? channelAvatar ?? player.item?.channelAvatar, size: 40)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(c.name).font(.subheadline.weight(.semibold)).lineLimit(1)
                         if let f = followers { Text("\(f) followers").font(.caption).foregroundStyle(.secondary) }
@@ -199,7 +200,11 @@ struct PlayerScreen: View {
         guard let path = player.detail?.channel?.path, moreFor != path else { return }
         moreFor = path
         more = []
-        if let page = try? await RumbleService.shared.channel(path) { more = page.items }
+        channelAvatar = nil
+        if let page = try? await RumbleService.shared.channel(path) {
+            more = page.items
+            channelAvatar = page.channel?.avatar ?? page.items.first(where: { $0.channelAvatar != nil })?.channelAvatar
+        }
     }
 }
 

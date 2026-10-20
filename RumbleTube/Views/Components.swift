@@ -30,6 +30,13 @@ final class Router: ObservableObject {
         Binding(get: { self.paths[tab] ?? NavigationPath() }, set: { self.paths[tab] = $0 })
     }
 
+    /// Notification bell / tapped alert: push Notifications on the current tab.
+    func showInbox() {
+        var p = paths[tab] ?? NavigationPath()
+        p.append(AppRoute.inbox)
+        paths[tab] = p
+    }
+
     func open(_ channel: ChannelRef) {
         PlayerModel.shared.expanded = false
         var p = paths[tab] ?? NavigationPath()
@@ -249,6 +256,7 @@ final class ListingModel: ObservableObject {
 struct ListingView<Header: View>: View {
     @StateObject var model: ListingModel
     var style: Style = .cards
+    var filter: ContentFilter = .all
     @ViewBuilder var header: () -> Header
     @EnvironmentObject var player: PlayerModel
 
@@ -258,13 +266,14 @@ struct ListingView<Header: View>: View {
         ScrollView {
             LazyVStack(spacing: style == .rows ? 12 : 0) {
                 header()
-                ForEach(model.items) { item in
+                let shown = model.items.filter(filter.keep)
+                ForEach(shown) { item in
                     Button { player.play(item) } label: {
                         if style == .cards { VideoCard(item: item) } else { VideoRow(item: item).padding(.horizontal, 12) }
                     }
                     .buttonStyle(.plain)
                     .onAppear {
-                        if item.id == model.items.last?.id { Task { await model.loadMore() } }
+                        if item.id == shown.last?.id { Task { await model.loadMore() } }
                     }
                 }
                 footer
@@ -282,14 +291,22 @@ struct ListingView<Header: View>: View {
                 Text(e).font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 Button("Try again") { Task { await model.reload() } }.buttonStyle(.bordered)
             }.padding(30)
-        } else if model.loadedOnce && model.items.isEmpty {
-            Text("Nothing here.").foregroundStyle(.secondary).padding(40)
+        } else if model.loadedOnce && model.items.filter(filter.keep).isEmpty {
+            VStack(spacing: 10) {
+                Text(model.items.isEmpty ? "Nothing here." : "Nothing matching this filter yet.").foregroundStyle(.secondary)
+                if model.hasNext && !model.items.isEmpty {
+                    Button("Load more") { Task { await model.loadMore() } }.buttonStyle(.bordered)
+                }
+            }
+            .padding(40)
+        } else if model.hasNext && !model.items.isEmpty && model.items.filter(filter.keep).count < 4 {
+            Button("Load more") { Task { await model.loadMore() } }.buttonStyle(.bordered).padding(20)
         }
     }
 }
 
 extension ListingView where Header == EmptyView {
-    init(model: ListingModel, style: Style = .cards) {
-        self.init(model: model, style: style, header: { EmptyView() })
+    init(model: ListingModel, style: Style = .cards, filter: ContentFilter = .all) {
+        self.init(model: model, style: style, filter: filter, header: { EmptyView() })
     }
 }

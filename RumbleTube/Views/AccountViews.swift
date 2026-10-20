@@ -86,6 +86,18 @@ struct InboxView: View {
     @EnvironmentObject var router: Router
     @State private var showLogin = false
 
+    private var groups: [(String, [RumbleNotification])] {
+        let cal = Calendar.current
+        var today: [RumbleNotification] = [], week: [RumbleNotification] = [], earlier: [RumbleNotification] = []
+        for n in account.notifications {
+            guard let d = n.createdOn else { earlier.append(n); continue }
+            if cal.isDateInToday(d) { today.append(n) }
+            else if Date().timeIntervalSince(d) < 7 * 86400 { week.append(n) }
+            else { earlier.append(n) }
+        }
+        return [("Today", today), ("This week", week), ("Earlier", earlier)].filter { !$0.1.isEmpty }
+    }
+
     var body: some View {
         Group {
             if !account.loggedIn {
@@ -103,54 +115,90 @@ struct InboxView: View {
                     if let e = account.notificationsError {
                         Text(e).font(.footnote).foregroundStyle(.secondary)
                     }
-                    ForEach(account.notifications) { n in
-                        row(n)
+                    ForEach(groups, id: \.0) { g in
+                        Section {
+                            ForEach(g.1) { n in
+                                row(n)
+                                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                                    .listRowSeparator(.hidden)
+                                    .listRowBackground(n.read ? Color.clear : Color.rumbleGreen.opacity(0.08))
+                            }
+                        } header: {
+                            Text(g.0).font(.headline).foregroundStyle(.primary).textCase(nil)
+                        }
                     }
                 }
                 .listStyle(.plain)
                 .overlay {
                     if account.loadingNotifications && account.notifications.isEmpty { ProgressView() }
                     else if !account.loadingNotifications && account.notifications.isEmpty && account.notificationsError == nil {
-                        Text("No notifications yet.").foregroundStyle(.secondary)
+                        VStack(spacing: 8) {
+                            Image(systemName: "bell.slash").font(.largeTitle).foregroundStyle(.secondary)
+                            Text("You're all caught up.").foregroundStyle(.secondary)
+                        }
                     }
                 }
                 .refreshable { await account.loadNotifications() }
                 .task { await account.loadNotifications() }
             }
         }
-        .navigationTitle("Inbox")
+        .navigationTitle("Notifications")
+        .navigationBarTitleDisplayMode(.inline)
+        .miniPlayerSpace()
         .sheet(isPresented: $showLogin) { LoginView().environmentObject(account) }
     }
 
+    private func message(_ n: RumbleNotification) -> Text {
+        guard let name = n.actorName, !name.isEmpty else { return Text(n.body) }
+        var rest = n.body
+        if rest.lowercased().hasPrefix(name.lowercased()) { rest = String(rest.dropFirst(name.count)) }
+        else { rest = " · " + rest }
+        return Text(name).fontWeight(.bold) + Text(rest)
+    }
+
+    private func icon(_ n: RumbleNotification) -> (String, Color) {
+        let t = n.type.lowercased()
+        if t.contains("reply") || t.contains("comment") { return ("bubble.left.fill", .blue) }
+        if t.contains("mention") { return ("at", .purple) }
+        if t.contains("rumble") || t.contains("like") || t.contains("vote") { return ("hand.thumbsup.fill", .rumbleGreen) }
+        if t.contains("follow") || t.contains("subscri") { return ("person.fill.badge.plus", .orange) }
+        if t.contains("live") { return ("dot.radiowaves.left.and.right", .red) }
+        if t.contains("rant") || t.contains("tip") { return ("dollarsign", .yellow) }
+        return ("bell.fill", .gray)
+    }
+
     @ViewBuilder private func row(_ n: RumbleNotification) -> some View {
-        let content = HStack(alignment: .top, spacing: 10) {
-            ChannelAvatar(name: n.actorName ?? "R", url: n.actorAvatar, size: 40)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(n.body).font(.subheadline.weight(n.read ? .regular : .semibold)).lineLimit(3)
-                HStack(spacing: 6) {
-                    if !n.read { Circle().fill(Color.rumbleGreen).frame(width: 7, height: 7) }
-                    Text(n.createdText ?? n.createdOn.map { DateParsing.relative($0) } ?? "")
-                        .font(.caption).foregroundStyle(.secondary)
-                    if n.commentID != nil {
-                        Label("Open comment", systemImage: "text.bubble").font(.caption.weight(.medium))
-                            .foregroundStyle(Color.rumbleGreen)
-                    }
+        let ic = icon(n)
+        let content = HStack(alignment: .top, spacing: 12) {
+            ChannelAvatar(name: n.actorName ?? "R", url: n.actorAvatar, size: 44)
+                .overlay(alignment: .bottomTrailing) {
+                    Image(systemName: ic.0).font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
+                        .frame(width: 19, height: 19).background(ic.1, in: Circle())
+                        .overlay(Circle().stroke(Color(.systemBackground), lineWidth: 2)).offset(x: 4, y: 4)
                 }
+            VStack(alignment: .leading, spacing: 4) {
+                message(n).font(.subheadline).lineLimit(3).multilineTextAlignment(.leading)
+                Text(n.createdText ?? n.createdOn.map { DateParsing.relative($0) } ?? "")
+                    .font(.caption).foregroundStyle(.secondary)
             }
-            Spacer(minLength: 4)
+            Spacer(minLength: 6)
             if let v = n.video {
-                Thumbnail(item: v).frame(width: 88).clipShape(RoundedRectangle(cornerRadius: 6))
+                Thumbnail(item: v).frame(width: 76).clipShape(RoundedRectangle(cornerRadius: 6))
             }
+            if !n.read { Circle().fill(Color.rumbleGreen).frame(width: 8, height: 8).padding(.top, 18) }
         }
-        .padding(.vertical, 4)
+        .padding(.horizontal, 14).padding(.vertical, 10)
+        .contentShape(Rectangle())
 
         if let v = n.video, n.isCommentRelated {
             NavigationLink(value: CommentTarget(video: v, listID: n.commentListID, videoNumericID: n.videoNumericID,
                                                 focusCommentID: n.commentID)) { content }
+                .buttonStyle(.plain)
         } else if let v = n.video {
             Button { player.play(v) } label: { content }.buttonStyle(.plain)
         } else if let p = n.actorPath {
             NavigationLink(value: ChannelRef(path: p, name: n.actorName ?? p, avatar: n.actorAvatar)) { content }
+                .buttonStyle(.plain)
         } else {
             content
         }

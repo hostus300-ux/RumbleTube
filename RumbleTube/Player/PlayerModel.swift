@@ -86,7 +86,7 @@ final class PlayerModel: ObservableObject {
         currentTime = 0; duration = 0; artwork = nil
         resetSkipState()
         player.replaceCurrentItem(with: nil)
-        ShortsModel.shared.pauseForMainPlayer()
+        ShortsModel.pauseAll()
         AppAudio.takeOver()
 
         loadTask?.cancel()
@@ -141,7 +141,7 @@ final class PlayerModel: ObservableObject {
     /// Start/continue playback, taking the audio back if it was handed off.
     func resume() {
         guard player.currentItem != nil else { return }
-        ShortsModel.shared.pauseForMainPlayer()
+        ShortsModel.pauseAll()
         AppAudio.takeOver()
         player.play()
     }

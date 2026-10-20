@@ -192,3 +192,95 @@ final class YouTubeMatchTests: XCTestCase {
         XCTAssertTrue(decoded.autoMatchYouTube)
     }
 }
+
+final class FeedParserTests: XCTestCase {
+    func text(_ name: String) throws -> String {
+        let url = try XCTUnwrap(Bundle.module.url(forResource: name, withExtension: nil, subdirectory: "Fixtures"))
+        return try String(contentsOf: url)
+    }
+    func data(_ name: String) throws -> Data { Data(try text(name).utf8) }
+
+    func testHomepageRows() throws {
+        let home = try HomeParser.parse(try text("home-page.html"))
+        XCTAssertEqual(home.hero.first?.id, "v7h3x8q")
+        XCTAssertEqual(home.rows.map(\.title), ["Continue Watching", "Live", "Vlogs"], "shorts, empty and playlist rows dropped")
+        XCTAssertEqual(home.pills.map(\.title), ["Live", "Vlogs"], "My Feed / Shorts / empty pills dropped")
+        let live = home.rows[1].items[0]
+        XCTAssertEqual(live.live, true)
+        XCTAssertEqual(live.watching, 10209)
+        XCTAssertEqual(live.channelName, "TimcastIRL")
+        XCTAssertEqual(live.channelPath, "/c/TimcastIRL")
+        XCTAssertNotNil(live.channelAvatar)
+        XCTAssertEqual(live.progress, 2792)
+        XCTAssertEqual(live.numericID, "448343828")
+        XCTAssertEqual(live.commentListID, "7exkb8")
+        XCTAssertNil(live.duration)
+        XCTAssertEqual(home.rows[1].items[1].upcoming, true)
+        XCTAssertEqual(home.rows[1].items[1].live, false)
+        XCTAssertEqual(home.rows[2].items.map(\.id), ["v7h08m8"], "short removed from a video row")
+        XCTAssertEqual(home.rows[2].items[0].duration, "8:40")
+        XCTAssertEqual(home.rows[0].feedPath, "/playlists/watch-history")
+    }
+
+    func testServerRenderedCards() throws {
+        let page = try ListingParser.parse(try text("editor-picks.html"), url: URL(string: "https://rumble.com/editor-picks")!)
+        XCTAssertEqual(page.items.map(\.id), ["v7h3x8q", "v7gf2pg"], "sidebar and Play All button ignored")
+        let a = page.items[0], b = page.items[1]
+        XCTAssertEqual(a.title, "Riots EXPLODE Across Europe, France Is On FIRE | Timcast IRL")
+        XCTAssertEqual(a.live, true)
+        XCTAssertEqual(a.watching, 10200)
+        XCTAssertEqual(a.views, "29K")
+        XCTAssertEqual(a.channelName, "TimcastIRL")
+        XCTAssertEqual(a.channelAvatar, "https://hugh.cdn.rumble.cloud/video/z8/J/Y/p/d/JYpda.baa.2-TimcastIRL-srjiah.jpeg")
+        XCTAssertTrue(a.thumbnail!.hasPrefix("https://hugh.cdn.rumble.cloud/"))
+        XCTAssertEqual(b.duration, "2:26:54")
+        XCTAssertEqual(b.live, false)
+        XCTAssertEqual(b.channelPath, "/c/welikeshooting")
+        XCTAssertEqual(b.publishedText, "6 days ago")
+        XCTAssertTrue(page.hasNext)
+        XCTAssertNil(page.channel)
+    }
+
+    func testChannelJSONGrid() throws {
+        let page = try ListingParser.parse(try text("channel-grid.html"), url: URL(string: "https://rumble.com/c/welikeshooting")!)
+        XCTAssertEqual(page.items.map(\.id), ["v7h08m8"], "JSON grid read; shorts excluded")
+        XCTAssertEqual(page.items[0].thumbnail, "https://x/t.jpg")
+        XCTAssertEqual(page.channel?.name, "We Like Shooting")
+        XCTAssertEqual(page.channel?.avatar, "https://hugh.cdn.rumble.cloud/a.png")
+        XCTAssertEqual(page.channel?.followers, "3.55K")
+        XCTAssertEqual(page.channel?.rumbleID, "307905")
+        XCTAssertEqual(page.channel?.rumbleType, "channel")
+        XCTAssertEqual(page.channel?.followingOnRumble, false)
+        XCTAssertTrue(page.hasNext)
+        let req = FollowAPI.toggleRequest(id: "307905", type: "channel", follow: true)
+        XCTAssertEqual(String(decoding: req.httpBody!, as: UTF8.self),
+                       "action=toggle-following-status&collection_id=307905&size=default&state=1&type=channel")
+    }
+
+    func testMyFeed() throws {
+        let chans = try FollowingAPI.parseLatest(try data("following-latest.json"))
+        XCTAssertEqual(chans.map(\.ref.path), ["/c/DemoLive", "/user/quiet"])
+        XCTAssertTrue(chans[0].isLive)
+        XCTAssertFalse(chans[1].isLive)
+        XCTAssertEqual(chans[0].ref.avatar, "https://x/l.jpg")
+        let feed = try FollowingAPI.parseFeed(try data("following-feed.json"))
+        XCTAssertTrue(feed.hasMore)
+        XCTAssertEqual(feed.items.filter { $0.isShort != true }.map(\.id), ["v7h3x8q", "v7h08m8"])
+        XCTAssertEqual(feed.items.filter { $0.isShort == true }.map(\.id), ["v7h3wvy"])
+        XCTAssertEqual(feed.raw.compactMap(ShortsParser.item).map(\.id), ["v7h3wvy"], "shorts become ShortItems for the shorts pager")
+        let req = FollowingAPI.feedRequest(pill: "shorts", offset: 24, timeZone: "America/Chicago")
+        XCTAssertTrue(req.url!.absoluteString.contains("pill=shorts"))
+        XCTAssertTrue(req.url!.absoluteString.contains("options=video.full,video.vertical_thumb"))
+        XCTAssertTrue(req.url!.absoluteString.contains("offset=24"))
+    }
+
+    func testAccountPages() throws {
+        let lines = try AccountPages.earnings(try text("earnings.html"))
+        XCTAssertEqual(lines.map(\.label), ["YouTube Earnings", "Rumble Earnings", "Total", "Potential Recurring Revenue"])
+        XCTAssertEqual(lines[1].amount, "$7.25")
+        XCTAssertEqual(AccountPages.followers("<h1>exampleuser</h1><span>2 Followers</span>"), "2")
+        XCTAssertEqual(AccountPages.followers("<div><span>697K</span> <span>Followers</span></div>"), "697K")
+        XCTAssertEqual(AccountPages.avatar(#"<img src="https://hugh.cdn.rumble.cloud/video/z0/a.jpeg" class="x">"#),
+                       "https://hugh.cdn.rumble.cloud/video/z0/a.jpeg")
+    }
+}

@@ -1,152 +1,15 @@
 import SwiftUI
 
-// MARK: - Home (subscriptions feed)
-
-@MainActor
-final class FeedModel: ObservableObject {
-    @Published var items: [VideoItem] = []
-    @Published var failed: [ChannelRef] = []
-    @Published var loading = false
-    @Published var loadedFor: [String] = []
-
-    func load(_ follows: [ChannelRef], force: Bool = false) async {
-        let key = follows.map(\.id)
-        guard force || key != loadedFor else { return }
-        loading = true
-        let r = await RumbleService.shared.feed(follows, force: force)
-        items = r.items; failed = r.failed; loadedFor = key
-        loading = false
-    }
-}
-
-struct HomeView: View {
-    @EnvironmentObject var library: LibraryStore
-    @EnvironmentObject var player: PlayerModel
-    @EnvironmentObject var router: Router
-    @StateObject private var feed = FeedModel()
-
-    var body: some View {
-        Group {
-            if library.data.follows.isEmpty {
-                VStack(spacing: 14) {
-                    Image(systemName: "person.2.crop.square.stack").font(.system(size: 48)).foregroundStyle(Color.rumbleGreen)
-                    Text("Your feed is empty").font(.title3.weight(.semibold))
-                    Text("Follow channels and their newest videos show up here, newest first.")
-                        .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                    Button("Explore Rumble") { router.tab = .search }.buttonStyle(.borderedProminent).tint(.rumbleGreen)
-                        .foregroundStyle(.black)
-                }
-                .padding(40)
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        channelStrip
-                        if feed.loading && feed.items.isEmpty { ProgressView().padding(40) }
-                        ForEach(feed.items) { item in
-                            Button { player.play(item) } label: { VideoCard(item: item) }.buttonStyle(.plain)
-                        }
-                        if !feed.failed.isEmpty {
-                            Text("Couldn't load: \(feed.failed.map(\.name).joined(separator: ", "))")
-                                .font(.caption).foregroundStyle(.secondary).padding()
-                        }
-                    }
-                }
-                .refreshable { await feed.load(library.data.follows, force: true) }
-            }
-        }
-        .navigationTitle("Home")
-        .task(id: library.data.follows.map(\.id)) { await feed.load(library.data.follows) }
-    }
-
-    private var channelStrip: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 14) {
-                ForEach(library.data.follows) { c in
-                    NavigationLink(value: c) {
-                        VStack(spacing: 4) {
-                            ChannelAvatar(name: c.name, url: c.avatar, size: 52)
-                            Text(c.name).font(.caption2).lineLimit(1).frame(width: 64)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 12).padding(.vertical, 10)
-        }
-    }
-}
-
-// MARK: - Explore
-
-struct ExploreView: View {
-    @State private var section: ExploreSection = .live
-    var embedded = false
-
-    var body: some View {
-        VStack(spacing: 0) {
-            Picker("Section", selection: $section) {
-                ForEach(ExploreSection.allCases) { Text($0.rawValue).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 12).padding(.vertical, 8)
-            ListingView(model: ListingModel { page in try await RumbleService.shared.explore(section, page: page) })
-                .id(section)
-        }
-        .navigationTitle(embedded ? "Search" : "Explore")
-    }
-}
-
-// MARK: - Search
-
-struct SearchView: View {
-    @EnvironmentObject var player: PlayerModel
-    @EnvironmentObject var router: Router
-    @State private var text = ""
-    @State private var submitted = ""
-    @State private var sort: SearchSort = .relevance
-
-    var body: some View {
-        VStack(spacing: 0) {
-            if let link = RumbleService.item(fromLink: text) {
-                Button { player.play(link) } label: {
-                    Label("Open this Rumble link", systemImage: "link").frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent).tint(.rumbleGreen).foregroundStyle(.black).padding()
-            } else if let path = RumbleURL.channelPath(from: text), text.contains("rumble.com") {
-                Button { router.open(ChannelRef(path: path, name: String(path.split(separator: "/").last ?? ""))) } label: {
-                    Label("Open this channel", systemImage: "person.crop.square").frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent).tint(.rumbleGreen).foregroundStyle(.black).padding()
-            }
-            if submitted.isEmpty {
-                // Nothing searched yet: browse Live / Editor Picks / Latest right here.
-                ExploreView(embedded: true)
-            } else {
-                Picker("Sort", selection: $sort) {
-                    ForEach(SearchSort.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented).padding(.horizontal, 12).padding(.bottom, 6)
-                let q = submitted, s = sort
-                ListingView(model: ListingModel { page in try await RumbleService.shared.search(q, sort: s, page: page) })
-                    .id("\(q)|\(s.rawValue)")
-            }
-        }
-        .navigationTitle("Search")
-        .onChange(of: text) { t in if t.isEmpty { submitted = "" } }
-        .searchable(text: $text, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search or paste link")
-        .onSubmit(of: .search) {
-            let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let link = RumbleService.item(fromLink: t) { player.play(link) } else if !t.isEmpty { submitted = t }
-        }
-    }
-}
-
 // MARK: - Channel
 
 struct ChannelView: View {
     let channel: ChannelRef
     @EnvironmentObject var library: LibraryStore
+    @EnvironmentObject var account: AccountStore
     @StateObject private var model: ListingModel
+    @State private var rumbleFollowing: Bool?
+    @State private var followBusy = false
+    @State private var followError: String?
 
     init(channel: ChannelRef) {
         self.channel = channel
@@ -163,7 +26,8 @@ struct ChannelView: View {
     private var header: some View {
         let h = model.header
         let ref = ChannelRef(path: channel.path, name: h?.name ?? channel.name, avatar: h?.avatar ?? channel.avatar)
-        let following = library.data.isFollowing(channel.path)
+        let canRumble = account.loggedIn && h?.rumbleID != nil
+        let following = canRumble ? (rumbleFollowing ?? h?.followingOnRumble ?? false) : library.data.isFollowing(channel.path)
         return VStack(spacing: 10) {
             if let b = h?.banner, let url = URL(string: b) {
                 AsyncImage(url: url) { $0.image?.resizable().scaledToFill() }
@@ -179,14 +43,30 @@ struct ChannelView: View {
             }
             .padding(.horizontal, 12)
             Button {
-                library.data.toggleFollow(ref)
+                if canRumble, let id = h?.rumbleID {
+                    let want = !following
+                    followBusy = true
+                    Task {
+                        do {
+                            try await account.setFollow(id: id, type: h?.rumbleType ?? "channel", follow: want)
+                            rumbleFollowing = want
+                            if want != library.data.isFollowing(channel.path) { library.data.toggleFollow(ref) }
+                            followError = nil
+                        } catch { followError = "Couldn't update follow on Rumble." }
+                        followBusy = false
+                    }
+                } else {
+                    library.data.toggleFollow(ref)
+                }
             } label: {
                 Text(following ? "Following" : "Follow").font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity)
             }
+            .disabled(followBusy)
             .buttonStyle(.borderedProminent)
             .tint(following ? Color.secondary.opacity(0.3) : Color.rumbleGreen)
             .foregroundStyle(following ? Color.primary : Color.black)
             .padding(.horizontal, 12)
+            if let followError { Text(followError).font(.caption).foregroundStyle(.red) }
         }
         .onChange(of: h?.avatar) { avatar in
             // keep the stored follow's avatar/name fresh
@@ -194,75 +74,6 @@ struct ChannelView: View {
                 library.data.follows[i].avatar = avatar
                 if let n = h?.name { library.data.follows[i].name = n }
             }
-        }
-    }
-}
-
-// MARK: - Library
-
-struct LibraryView: View {
-    enum Section: String, CaseIterable, Identifiable { case history = "History", later = "Watch Later", following = "Following"; var id: String { rawValue } }
-    @EnvironmentObject var library: LibraryStore
-    @EnvironmentObject var player: PlayerModel
-    @State private var section: Section = .history
-
-    var body: some View {
-        VStack(spacing: 0) {
-            Picker("Library", selection: $section) {
-                ForEach(Section.allCases) { Text($0.rawValue).tag($0) }
-            }
-            .pickerStyle(.segmented).padding(.horizontal, 12).padding(.vertical, 8)
-            List {
-                switch section {
-                case .history:
-                    ForEach(library.data.history) { h in
-                        Button { player.play(h.video) } label: { VideoRow(item: h.video) }.buttonStyle(.plain)
-                    }
-                    .onDelete { library.data.history.remove(atOffsets: $0) }
-                case .later:
-                    ForEach(library.data.watchLater) { v in
-                        Button { player.play(v) } label: { VideoRow(item: v) }.buttonStyle(.plain)
-                    }
-                    .onDelete { library.data.watchLater.remove(atOffsets: $0) }
-                    .onMove { library.data.watchLater.move(fromOffsets: $0, toOffset: $1) }
-                case .following:
-                    ForEach(library.data.follows) { c in
-                        NavigationLink(value: c) {
-                            HStack(spacing: 12) { ChannelAvatar(name: c.name, url: c.avatar); Text(c.name) }
-                        }
-                    }
-                    .onDelete { library.data.follows.remove(atOffsets: $0) }
-                }
-            }
-            .listStyle(.plain)
-            .overlay {
-                if isEmpty {
-                    Text(emptyText).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(40)
-                }
-            }
-        }
-        .navigationTitle("Library")
-        .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) { if section == .later { EditButton() } }
-            ToolbarItem(placement: .navigationBarTrailing) {
-                NavigationLink { SettingsView() } label: { Image(systemName: "gearshape") }
-            }
-        }
-    }
-
-    private var isEmpty: Bool {
-        switch section {
-        case .history: return library.data.history.isEmpty
-        case .later: return library.data.watchLater.isEmpty
-        case .following: return library.data.follows.isEmpty
-        }
-    }
-
-    private var emptyText: String {
-        switch section {
-        case .history: return "Videos you watch show up here."
-        case .later: return "Long-press any video and choose Watch Later."
-        case .following: return "Follow channels from their page or the player."
         }
     }
 }
@@ -279,8 +90,28 @@ struct SettingsView: View {
         Binding(get: { library.data.prefs[keyPath: key] }, set: { library.data.prefs[keyPath: key] = $0 })
     }
 
+    private func tweak(_ title: String, _ icon: String, _ color: Color) -> some View {
+        Label {
+            Text(title)
+        } icon: {
+            Image(systemName: icon).font(.footnote.weight(.semibold)).foregroundStyle(.white)
+                .frame(width: 28, height: 28).background(color, in: RoundedRectangle(cornerRadius: 7))
+        }
+    }
+
     var body: some View {
         Form {
+            Section {
+                NavigationLink { SkipSettingsView().miniPlayerSpace() } label: { tweak("RumbleSkip", "forward.end.alt", .green) }
+                NavigationLink { GestureSettingsView().miniPlayerSpace() } label: { tweak("Gestures", "hand.tap", .orange) }
+                NavigationLink { TabSettingsView().miniPlayerSpace() } label: { tweak("Tabs & layout", "square.grid.2x2", .blue) }
+                Toggle(isOn: Binding(get: { library.data.skip.autoMatchYouTube },
+                                     set: { library.data.skip.autoMatchYouTube = $0; PlayerModel.shared.settingsChanged() })) {
+                    tweak("Auto-find YouTube skips", "wand.and.stars", .red)
+                }
+                Toggle(isOn: pref(\.shortsMutedWhenOtherAudio)) { tweak("Shorts start muted over my music", "speaker.wave.2", .purple) }
+            } header: { Text("Tweaks") }
+
             AccountSettingsSection()
 
             Section("Appearance") {
@@ -302,14 +133,8 @@ struct SettingsView: View {
                 }
             }
 
-            Section {
-                NavigationLink { TabSettingsView() } label: {
-                    LabeledContent("Tabs", value: library.data.prefs.visibleTabs.map(\.title).joined(separator: ", "))
-                }
-            } header: { Text("Layout") } footer: { Text("Turn tabs on or off and drag to reorder them.") }
 
             Section {
-                NavigationLink { GestureSettingsView() } label: { Label("Gestures", systemImage: "hand.tap") }
                 Picker("Default speed", selection: pref(\.defaultRate)) {
                     ForEach(AppPreferences.rateChoices, id: \.self) { Text(String(format: "%g×", $0)).tag($0) }
                 }
@@ -333,7 +158,6 @@ struct SettingsView: View {
             }
 
             Section {
-                NavigationLink { SkipSettingsView() } label: { Label("RumbleSkip", systemImage: "forward.end.alt") }
                 LabeledContent("Rumble ads", value: "None")
             } header: { Text("Skipping & ads") } footer: {
                 Text("RumbleTube plays videos straight from Rumble's servers, so Rumble's ad player never loads. RumbleSkip handles sponsor reads inside videos.")
@@ -352,6 +176,7 @@ struct SettingsView: View {
             }
         }
         .navigationTitle("Settings")
+        .miniPlayerSpace()
     }
 }
 
@@ -385,7 +210,7 @@ struct TabSettingsView: View {
                     library.data.prefs.tabs = tabs
                 }
             } footer: {
-                Text("Library holds Settings, so it always stays. Drag the handles to reorder.")
+                Text("Account holds Settings, so it always stays. Search and notifications are always at the top right. Drag the handles to reorder.")
             }
             Section {
                 Button("Reset to default") { library.data.prefs.tabs = AppPreferences().tabs }

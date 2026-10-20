@@ -14,6 +14,9 @@ final class AccountStore: ObservableObject {
     @Published private(set) var loggedIn = false
     @Published private(set) var username: String?
     @Published private(set) var hasUnread = false
+    @Published private(set) var avatarURL: String?
+    @Published private(set) var followersText: String?
+    @Published private(set) var followingCount: Int?
     @Published private(set) var notifications: [RumbleNotification] = []
     @Published private(set) var loadingNotifications = false
     @Published var notificationsError: String?
@@ -59,6 +62,7 @@ final class AccountStore: ObservableObject {
         await store.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(),
                                for: records.filter { $0.displayName.contains("rumble") })
         loggedIn = false; username = nil; notifications = []; hasUnread = false
+        avatarURL = nil; followersText = nil; followingCount = nil
         UIApplication.shared.applicationIconBadgeNumber = 0
     }
 
@@ -71,6 +75,38 @@ final class AccountStore: ObservableObject {
                 try? await Task.sleep(nanoseconds: 180_000_000_000)
             }
         }
+    }
+
+    // MARK: - Profile (Account tab)
+
+    func loadProfile() async {
+        guard loggedIn else { return }
+        if username == nil, let r = try? await session.data(from: URL(string: "https://rumble.com/")!) {
+            username = AccountRequests.username(fromPage: String(decoding: r.0, as: UTF8.self))
+        }
+        var hx = URLRequest(url: URL(string: "https://rumble.com/-register/htmx/header-user-actions")!)
+        hx.setValue("true", forHTTPHeaderField: "HX-Request")
+        if let r = try? await send(hx), r.1 == 200 { avatarURL = AccountPages.avatar(String(decoding: r.0, as: UTF8.self)) ?? avatarURL }
+        if let u = username, let url = URL(string: "https://rumble.com/user/\(u)"), let r = try? await session.data(from: url) {
+            followersText = AccountPages.followers(String(decoding: r.0, as: UTF8.self)) ?? followersText
+        }
+        if let list = try? await RumbleService.shared.followedChannels() { followingCount = list.count }
+    }
+
+    func earnings() async throws -> [EarningsLine] {
+        guard loggedIn else { throw AccountError.notLoggedIn }
+        let (data, code) = try await send(URLRequest(url: URL(string: "https://rumble.com/account/earnings")!))
+        guard code == 200 else { throw AccountError.http(code) }
+        let lines = try AccountPages.earnings(String(decoding: data, as: UTF8.self))
+        if lines.isEmpty { throw AccountError.badResponse }
+        return lines
+    }
+
+    func setFollow(id: String, type: String, follow: Bool) async throws {
+        guard loggedIn else { throw AccountError.notLoggedIn }
+        let (_, code) = try await send(FollowAPI.toggleRequest(id: id, type: type, follow: follow))
+        guard (200..<300).contains(code) else { throw AccountError.http(code) }
+        if let n = followingCount { followingCount = max(0, n + (follow ? 1 : -1)) }
     }
 
     // MARK: - Notifications

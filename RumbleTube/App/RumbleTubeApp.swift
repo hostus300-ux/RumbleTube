@@ -26,7 +26,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
         Task { @MainActor in
             PlayerModel.shared.expanded = false
-            Router.shared.tab = .inbox
+            Router.shared.showInbox()
         }
         completionHandler()
     }
@@ -62,7 +62,7 @@ struct RumbleTubeApp: App {
         .onChange(of: phase) { p in
             if p == .active { account.startPolling() }
             else {
-                ShortsModel.shared.pauseForMainPlayer()
+                ShortsModel.pauseAll()
                 player.savePosition(); library.saveNow()
                 if account.alertsEnabled { AccountStore.scheduleRefresh() }
             }
@@ -85,7 +85,6 @@ struct RootView: View {
         TabView(selection: $router.tab) {
             ForEach(tabs) { t in
                 tab(t)
-                    .badge(t == .inbox && account.hasUnread ? 1 : 0)
             }
         }
         .environmentObject(shorts)
@@ -94,10 +93,10 @@ struct RootView: View {
         .id(prefs.accent)   // rebuild so every accent-coloured view picks up a new accent
         .onAppear {
             Theme.accentHex = prefs.accent.hex
-            if !tabs.contains(router.tab) { router.tab = tabs.first ?? .library }
+            if !tabs.contains(router.tab) { router.tab = tabs.first ?? .account }
         }
         .onChange(of: prefs.accent) { a in Theme.accentHex = a.hex }
-        .onChange(of: tabs) { t in if !t.contains(router.tab) { router.tab = t.first ?? .library } }
+        .onChange(of: tabs) { t in if !t.contains(router.tab) { router.tab = t.first ?? .account } }
         .onChange(of: router.tab) { t in updateShorts(tab: t, expanded: player.expanded) }
         .onChange(of: player.expanded) { e in updateShorts(tab: router.tab, expanded: e) }
         .sheet(isPresented: $player.expanded) {
@@ -118,21 +117,21 @@ struct RootView: View {
 
     @ViewBuilder private func content(_ t: AppTab) -> some View {
         switch t {
-        case .home: HomeView()
+        case .home: HomeScreen()
         case .shorts: ShortsView()
-        case .search: SearchView()
-        case .inbox: InboxView()
-        case .library: LibraryView()
+        case .myFeed: MyFeedScreen()
+        case .account: AccountScreen()
         }
     }
 
     private func tab(_ t: AppTab) -> some View {
         NavigationStack(path: router.path(t)) {
             content(t)
-                .navigationDestination(for: ChannelRef.self) { ChannelView(channel: $0) }
-                .navigationDestination(for: CommentTarget.self) { CommentsScreen(target: $0) }
+                .navigationDestination(for: ChannelRef.self) { ChannelView(channel: $0).miniPlayerSpace() }
+                .navigationDestination(for: CommentTarget.self) { CommentsScreen(target: $0).miniPlayerSpace() }
+                .navigationDestination(for: AppRoute.self) { $0.screen }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) { if t != .shorts { MiniPlayer() } }
+        .overlay(alignment: .bottom) { if t != .shorts { MiniPlayer() } }
         .tabItem { Label(t.title, systemImage: t.icon) }
         .tag(t)
     }

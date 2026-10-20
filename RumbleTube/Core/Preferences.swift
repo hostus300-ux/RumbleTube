@@ -3,28 +3,28 @@ import Foundation
 // MARK: - Tabs
 
 enum AppTab: String, Codable, CaseIterable, Identifiable {
-    case home, shorts, search, inbox, library
+    case home, shorts
+    case myFeed = "my-feed"
+    case account
     var id: String { rawValue }
     var title: String {
         switch self {
         case .home: return "Home"
         case .shorts: return "Shorts"
-        case .search: return "Search"
-        case .inbox: return "Inbox"
-        case .library: return "Library"
+        case .myFeed: return "My Feed"
+        case .account: return "Account"
         }
     }
     var icon: String {
         switch self {
         case .home: return "house"
         case .shorts: return "play.rectangle.on.rectangle"
-        case .search: return "magnifyingglass"
-        case .inbox: return "bell"
-        case .library: return "books.vertical"
+        case .myFeed: return "rectangle.stack.badge.play"
+        case .account: return "person.crop.circle"
         }
     }
-    /// Library holds Settings, so it can't be turned off.
-    var required: Bool { self == .library }
+    /// Account holds Settings, so it can't be turned off.
+    var required: Bool { self == .account }
 }
 
 struct TabSetting: Codable, Hashable, Identifiable {
@@ -148,7 +148,13 @@ struct AppPreferences: Codable, Equatable {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let d = AppPreferences()
-        tabs = (try? c.decodeIfPresent([TabSetting].self, forKey: .tabs)) ?? d.tabs
+        if let raw = try? c.decodeIfPresent([[String: AnyCodableBool]].self, forKey: .tabs) {
+            let parsed = raw.compactMap { r -> TabSetting? in
+                guard let t = r["tab"]?.string.flatMap(AppTab.init(rawValue:)) else { return nil }
+                return TabSetting(tab: t, enabled: r["enabled"]?.bool ?? true)
+            }
+            tabs = parsed.isEmpty ? d.tabs : parsed
+        } else { tabs = d.tabs }
         theme = (try? c.decodeIfPresent(ThemeMode.self, forKey: .theme)) ?? d.theme
         accent = (try? c.decodeIfPresent(AccentChoice.self, forKey: .accent)) ?? d.accent
         gestures = (try? c.decodeIfPresent([String: GestureAction].self, forKey: .gestures)) ?? d.gestures
@@ -158,5 +164,19 @@ struct AppPreferences: Codable, Equatable {
         rotateToFullscreen = (try? c.decodeIfPresent(Bool.self, forKey: .rotateToFullscreen)) ?? d.rotateToFullscreen
         shortsMutedWhenOtherAudio = (try? c.decodeIfPresent(Bool.self, forKey: .shortsMutedWhenOtherAudio)) ?? d.shortsMutedWhenOtherAudio
         autoplayShorts = (try? c.decodeIfPresent(Bool.self, forKey: .autoplayShorts)) ?? d.autoplayShorts
+    }
+}
+
+/// Decodes either a string or a bool (for reading old tab settings leniently).
+struct AnyCodableBool: Codable {
+    var string: String?
+    var bool: Bool?
+    init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if let b = try? c.decode(Bool.self) { bool = b } else { string = try? c.decode(String.self) }
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        if let bool { try c.encode(bool) } else { try c.encode(string) }
     }
 }

@@ -57,7 +57,7 @@ enum ShortsParser {
 
     static func item(_ v: [String: Any]) -> ShortItem? {
         guard let permalink = (v["permalink_id"] as? String) ?? (v["relative_url"] as? String).flatMap(shortId),
-              let numeric = int(v["id"]) else { return nil }
+              let numeric = int(v["id"]) ?? int((v["rumble_votes"] as? [String: Any])?["content_id"]) else { return nil }
         let streams: [StreamOption] = (v["videos"] as? [[String: Any]] ?? []).compactMap { s in
             guard let url = s["url"] as? String, (s["type"] as? String ?? "mp4") == "mp4" else { return nil }
             return StreamOption(kind: .mp4, height: int(s["res"]) ?? int(s["resolution"]),

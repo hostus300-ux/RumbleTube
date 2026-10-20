@@ -27,18 +27,6 @@ enum RumbleError: LocalizedError {
     }
 }
 
-enum ExploreSection: String, CaseIterable, Identifiable {
-    case live = "Live", picks = "Editor Picks", latest = "Latest"
-    var id: String { rawValue }
-    var path: String {
-        switch self {
-        case .live: return "/browse/live"
-        case .picks: return "/editor-picks"
-        case .latest: return "/videos"
-        }
-    }
-}
-
 enum SearchSort: String, CaseIterable, Identifiable {
     case relevance = "Relevance", date = "Newest", views = "Most viewed"
     var id: String { rawValue }
@@ -54,29 +42,44 @@ final class RumbleService {
     private var detailCache: [String: VideoDetail] = [:]
     private var channelCache: [String: (Date, ListingPage)] = [:]
 
-    // MARK: listings
-    func search(_ query: String, sort: SearchSort = .relevance, page: Int = 1) async throws -> ListingPage {
-        var c = URLComponents(string: "https://rumble.com/search/video")!
-        var q = [URLQueryItem(name: "q", value: query)]
-        if let s = sort.param { q.append(URLQueryItem(name: "sort", value: s)) }
+    // MARK: listings (plain HTTP + parsers; the hidden web view is only a fallback)
+
+    /// Fetch a rumble.com page (with the signed-in cookie when there is one) and parse its videos.
+    func listing(_ path: String, page: Int = 1, query: [URLQueryItem] = []) async throws -> ListingPage {
+        var c = URLComponents(string: "https://rumble.com" + path)!
+        var q = query
         if page > 1 { q.append(URLQueryItem(name: "page", value: "\(page)")) }
-        c.queryItems = q
-        return try await PageExtractor.shared.extract(c.url!)
+        if !q.isEmpty { c.queryItems = (c.queryItems ?? []) + q }
+        let url = c.url!
+        if let r = try? await RumbleHTTP.get(url), r.1 == 200,
+           let parsed = try? ListingParser.parse(String(decoding: r.0, as: UTF8.self), url: url),
+           !parsed.items.isEmpty || parsed.channel != nil {
+            return parsed
+        }
+        return try await PageExtractor.shared.extract(url)
     }
 
-    func explore(_ section: ExploreSection, page: Int = 1) async throws -> ListingPage {
-        try await PageExtractor.shared.extract(pageURL(section.path, page))
+    func search(_ query: String, sort: SearchSort = .relevance, page: Int = 1) async throws -> ListingPage {
+        var q = [URLQueryItem(name: "q", value: query)]
+        if let s = sort.param { q.append(URLQueryItem(name: "sort", value: s)) }
+        return try await listing("/search/video", page: page, query: q)
+    }
+
+    func home() async throws -> HomePage {
+        let (data, code) = try await RumbleHTTP.get(URL(string: "https://rumble.com/")!)
+        guard code == 200 else { throw RumbleError.http(code) }
+        return try HomeParser.parse(String(decoding: data, as: UTF8.self))
     }
 
     func channel(_ path: String, page: Int = 1, maxAge: TimeInterval = 600) async throws -> ListingPage {
         let key = "\(path.lowercased())#\(page)"
         if let hit = channelCache[key], Date().timeIntervalSince(hit.0) < maxAge { return hit.1 }
-        let result = try await PageExtractor.shared.extract(pageURL(path, page))
+        let result = try await listing(path, page: page)
         channelCache[key] = (Date(), result)
         return result
     }
 
-    /// Latest uploads across followed channels, newest first.
+    /// Signed-out fallback for My Feed: latest uploads across locally followed channels, newest first.
     func feed(_ follows: [ChannelRef], force: Bool = false) async -> (items: [VideoItem], failed: [ChannelRef]) {
         var items: [VideoItem] = []
         var failed: [ChannelRef] = []
@@ -92,6 +95,7 @@ final class RumbleService {
                     var v = v
                     if v.channelPath == nil { v.channelPath = c.path }
                     if v.channelName == nil { v.channelName = page.channel?.name ?? c.name }
+                    if v.channelAvatar == nil { v.channelAvatar = page.channel?.avatar ?? c.avatar }
                     return v
                 }
             }
@@ -102,10 +106,24 @@ final class RumbleService {
         return (items, failed)
     }
 
-    private func pageURL(_ path: String, _ page: Int) -> URL {
-        var c = URLComponents(string: "https://rumble.com" + path)!
-        if page > 1 { c.queryItems = [URLQueryItem(name: "page", value: "\(page)")] }
-        return c.url!
+    // MARK: My Feed (signed in)
+
+    func followedChannels() async throws -> [FollowedChannel] {
+        let (data, resp) = try await RumbleHTTP.session.data(for: authed(FollowingAPI.latestRequest()))
+        guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw AccountError.notLoggedIn }
+        return try FollowingAPI.parseLatest(data)
+    }
+
+    func followingFeed(pill: String, offset: Int, limit: Int = 24) async throws -> (items: [VideoItem], raw: [[String: Any]], hasMore: Bool) {
+        let (data, resp) = try await RumbleHTTP.session.data(for: authed(FollowingAPI.feedRequest(pill: pill, offset: offset, limit: limit)))
+        guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw AccountError.notLoggedIn }
+        return try FollowingAPI.parseFeed(data)
+    }
+
+    private func authed(_ r: URLRequest) -> URLRequest {
+        var r = r
+        r.setValue("https://rumble.com/subscriptions", forHTTPHeaderField: "Referer")
+        return r
     }
 
     // MARK: video
@@ -135,6 +153,7 @@ final class RumbleService {
 
         var detail = VideoDetailBuilder.build(id: item.id, url: url.absoluteString, page: page, embed: embed, embedId: embedId)
         if detail.channel == nil, let c = item.channel { detail.channel = c }
+        if detail.channel?.avatar == nil { detail.channel?.avatar = item.channelAvatar }
         if detail.thumbnail == nil { detail.thumbnail = item.thumbnail }
         detailCache[item.id] = detail
         return detail
