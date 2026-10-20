@@ -14,7 +14,13 @@ final class PlayerModel: ObservableObject {
     @Published private(set) var detail: VideoDetail?
     @Published private(set) var loading = false
     @Published private(set) var error: String?
-    @Published var expanded = false
+    @Published var expanded = false {
+        didSet { if oldValue && !expanded { minimizedAt = Date() } }
+    }
+    /// When the full player was last swiped down; the mini player ignores taps briefly after this
+    /// so the end of the swipe can't land on its play/pause or close button.
+    private(set) var minimizedAt = Date.distantPast
+    var miniPlayerArmed: Bool { Date().timeIntervalSince(minimizedAt) > 0.7 }
     @Published private(set) var stream: StreamOption?
     @Published private(set) var isPlaying = false
     @Published private(set) var currentTime: Double = 0

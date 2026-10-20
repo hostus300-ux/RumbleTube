@@ -269,17 +269,17 @@ struct MiniPlayer: View {
                         Text(player.detail?.channel?.name ?? item.channelName ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
                     Spacer(minLength: 4)
-                    Button { player.togglePlay() } label: {
+                    Button { if player.miniPlayerArmed { player.togglePlay() } } label: {
                         Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").font(.title3).frame(width: 40, height: 40)
                     }
-                    Button { player.close() } label: {
+                    Button { if player.miniPlayerArmed { player.close() } } label: {
                         Image(systemName: "xmark").font(.body.weight(.semibold)).frame(width: 36, height: 40)
                     }
                 }
                 .padding(.horizontal, 10).padding(.vertical, 6)
             .foregroundStyle(.primary)
             .contentShape(Rectangle())
-            .onTapGesture { player.expanded = true }
+            .onTapGesture { if player.miniPlayerArmed { player.expanded = true } }
             .gesture(DragGesture(minimumDistance: 20).onEnded { v in
                 if v.translation.height < -30 { player.expanded = true }
             })
