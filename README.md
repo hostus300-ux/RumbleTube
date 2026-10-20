@@ -1,43 +1,71 @@
 # RumbleTube
 
-An unofficial iPhone/iPad client for Rumble that works like the YouTube app, with **RumbleSkip** (SponsorBlock-style skipping) built in.
+An unofficial iPhone client for Rumble that works like the YouTube app, with **RumbleSkip** (SponsorBlock-style skipping) built in. On your home screen it shows up as **Rumble**.
 
 ## Features
 
-**Browsing**
-- **Home:** a feed of your followed channels, newest first. There's no Rumble account involved; follows are stored on your phone.
-- **Explore:** Live, Editor Picks and Latest.
-- **Search:** sort by relevance, newest or most viewed. You can also paste any rumble.com video or channel link.
-- **Channel pages:** banner, follower count, Follow button, and an endless video list.
-- **Library:** History, Watch Later (long-press any video) and Following.
+**Tabs** (turn tabs on/off and reorder them in Settings → Tabs)
+- **Home:** Rumble's homepage, with a featured video, rows like Continue Watching and Live, and section buttons. Each row has "See all".
+- **Shorts:** a vertical swipe feed. It never interrupts music or podcasts from other apps.
+- **Create:** upload a video, or **Go live**. Go live opens the Rumble Studio app if you have it, and its App Store page if you don't.
+- **My Feed:**
+  - Your Rumble subscriptions, with channel circles at the top. A red ring means the channel is live (tap to join the stream); a green ring means a recent upload.
+  - Filters: All / Today / Live / Videos / Continue Watching.
+  - A separate Shorts view for shorts from creators you follow.
+- **Account:** profile, Your Videos, Following (live channels marked), Earnings, Watch History, Watch Later, Settings and Sign Out.
+
+**Everywhere**
+- Search and the notification bell sit in the top-right, on the same line as the page title.
+- All / Videos / Live filters on Home, search results and every list.
+- Search shows matching channels and videos, sorted by relevance, newest or most viewed. You can also paste any rumble.com link.
+- Thumbnails show how far you've watched, from this phone or from Rumble, and finished videos get a "Watched" badge.
+
+**Rumble account** (you sign in on Rumble's own page; the app never sees your password)
+- **Notifications:** tapping a reply jumps straight to that comment, already expanded, so you can answer it. Optional reply alerts.
+- **Comments:** read, like, reply and delete your own.
+- **Following:** Follow / Unfollow syncs with your Rumble account.
+- **Live chat:**
+  - Chat streams in real time.
+  - **Rants:** a $1–$500 tier slider shows how long your message stays pinned. Pay with Rumble Wallet, or with Apple Pay on Rumble's checkout.
+  - **Gift subs** for the channel you're watching.
 
 **Player**
-- Native iOS player with Picture-in-Picture, AirPlay, speed control and fullscreen.
-- Keeps playing in the background, with lock-screen and Control Center controls.
-- Quality picker (Auto/HLS or fixed 1080/720/480/360p), and your choice is remembered.
-- Resume where you left off, with progress bars on thumbnails.
+- Custom controls with YouTube-style gestures, which you can remap in Settings → Tweaks → Gestures. Defaults:
+  - Double-tap the sides to rewind or skip ahead.
+  - Hold for a speed boost.
+  - Swipe up for fullscreen.
+  - Pinch to zoom.
+- Picture-in-Picture, AirPlay, background audio and lock-screen controls.
+- Quality picker, playback speed, and resume where you left off.
 - Mini player: swipe the player down and keep browsing.
-- Live streams supported.
+- Live streams are supported.
 
 **RumbleSkip**
 - Auto-skips sponsor reads, self-promo and like/subscribe asks, with an Undo button.
 - Shows a skip button for intros, outros and recaps.
-- Coloured segment markers under the video.
-- Mark segments yourself (Start = Now / End = Now), vote on them, or keep them on your device only.
-- Link the YouTube upload of a video to use its SponsorBlock data.
-- Uses the same community server as the RumbleSkip browser extension, so skips you mark on your computer show up on your phone.
+- **Automatic YouTube matching:** finds the same video on YouTube and uses its SponsorBlock segments.
+  - If the lengths match, it skips automatically.
+  - If it's a different edit, it shows buttons instead of skipping on its own.
+- Mark your own segments, vote on them, or keep them on your device only. Works with the RumbleSkip browser extension's community server.
+
+**Look**
+- Built for iOS 26 **Liquid Glass**: glass header buttons, filter chips, a floating mini player, and a tab bar that shrinks while you scroll. You can switch it off in Settings.
+- Light/dark theme and accent colours.
+- The app icon has dark and tinted versions, so it matches tinted and clear home screens.
 
 **No Rumble ads.** The app plays the video stream directly, so Rumble's player ads never load.
 
 ## Install (sideload)
 
-Every push to `main` builds an unsigned `RumbleTube.ipa` on GitHub's free macOS build machines:
+Every push to `main` builds an unsigned `RumbleTube.ipa` with Xcode 26 on GitHub's macOS build machines:
 
-1. Open this repo's **Releases** → **RumbleTube (latest build)** on your phone and download `RumbleTube.ipa`.
-2. Install it with your sideloading tool (AltStore, SideStore, Sideloadly, TrollStore, or similar). The tool signs it with your Apple ID.
-3. If you used a free Apple ID, refresh it every 7 days in your sideloading tool.
+1. On your phone, open **Releases** → **RumbleTube (latest build)** and download `RumbleTube.ipa`.
+2. Install it with AltStore, SideStore, Sideloadly, TrollStore or a similar tool. The tool signs it with your Apple ID.
+3. If you used a free Apple ID, refresh it every 7 days.
 
-To build by hand on a Mac:
+Requires iOS 16 or later. Liquid Glass needs iOS 26.
+
+To build by hand on a Mac with Xcode 26:
 
 ```bash
 brew install xcodegen
@@ -49,22 +77,26 @@ open RumbleTube.xcodeproj   # pick your team under Signing and run on your phone
 
 | Piece | Where | Notes |
 |---|---|---|
-| Listing pages (search, channels, explore) | `Services/PageExtractor.swift` + `Resources/extract.js` | Loads the page in a hidden WebKit view with images, media and fonts blocked, then reads every `/v….html` link and its card, including Rumble's client-rendered grids inside shadow DOM. It doesn't depend on Rumble's class names. |
-| Video details | `Core/RumbleParsers.swift` | Uses the watch page's JSON-LD and `rumble.com/embedJS/u3/?request=video&v=<embedId>`, the same endpoint yt-dlp uses. Falls back to the rendered page, then oEmbed. |
-| Playback | `Player/PlayerModel.swift` | AVPlayer + AVPlayerViewController. HLS is preferred, with MP4 as the fixed-quality choice. |
-| RumbleSkip | `Core/SkipCore.swift`, `Player/SkipPanel.swift` | Same API and logic as the browser extension. Lookups use a 4-character hash prefix, so the server never learns exactly what you watch. |
-
-**When Rumble changes its site:** listing pages are handled by `extract.js`, which you can test in a browser. Run `node tests/extract.test.mjs` (Playwright). For watch pages, update the patterns in `WatchPageParser`.
+| Home, channels, categories, search | `Core/FeedParsers.swift` | Parses the JSON Rumble embeds in its pages (`rum-videos-row-provider`, `rum-videos-grid`) plus server-rendered cards. A hidden WebKit view (`PageExtractor`) is only a fallback. |
+| My Feed | `Core/FeedParsers.swift` | `/-api/user/following-latest` (channels, live viewers) and `/-api/user/following-feed` (pills, shorts, watch progress). |
+| Video details | `Core/RumbleParsers.swift` | Watch-page JSON-LD + `embedJS/u3/?request=video`, the endpoint yt-dlp uses. |
+| Account, comments, notifications | `Core/AccountCore.swift`, `Services/AccountStore.swift` | Uses the session cookie from Rumble's own sign-in page. |
+| Live chat & rants | `Core/LiveChatCore.swift`, `Player/LiveChat.swift` | Rumble's chat server-sent-event stream; messages and rants post to the same endpoints as rumble.com. |
+| Shorts | `Core/ShortsCore.swift`, `Views/ShortsView.swift` | `service.php?name=shorts.feed`, with a small pool of looping players. |
+| RumbleSkip | `Core/SkipCore.swift`, `Core/YouTubeMatch.swift` | Same API as the browser extension. Lookups use a hash prefix, so the server never learns exactly what you watch. |
+| Liquid Glass | `Views/Glass.swift` | `glassEffect` on iOS 26, with a blur fallback on older versions. |
 
 ## Tests
 
 ```bash
-swift test                     # core logic: parsers, skip engine, library (runs on Linux or macOS)
-node tests/extract.test.mjs    # page extractor in Chromium against captured Rumble markup
+swift test                     # parsers, chat, skip engine, settings migration (Linux or macOS)
+node tests/extract.test.mjs    # fallback page extractor in Chromium
 ```
+
+All test data is either invented or taken from public Rumble pages.
 
 ## Limits
 
-- No Rumble login, so comments, likes and live chat aren't available yet. Follows are stored locally.
-- The skip notice and button don't show in native fullscreen. Auto-skip still works there.
-- Unofficial and not on the App Store. Scraping is against Rumble's terms, so it may stop working when Rumble changes things.
+- Sign in with Apple can't show the native Face ID sheet inside third-party apps. Use email and password instead; you can set one with "Forgot password" on rumble.com.
+- Gift-sub checkout and Apple Pay rants happen on Rumble's own page inside the app.
+- Unofficial and not on the App Store. It may need fixes when Rumble changes its site.
