@@ -124,6 +124,8 @@ struct AppPreferences: Codable, Equatable {
     /// Start Shorts muted when another app is playing audio, so browsing never interrupts it.
     var shortsMutedWhenOtherAudio = true
     var autoplayShorts = true
+    /// iOS 26 Liquid Glass on the app's own controls (header, chips, mini player).
+    var liquidGlass = true
 
     static let seekChoices = [5, 10, 15, 30]
     static let rateChoices: [Double] = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0]
@@ -164,6 +166,7 @@ struct AppPreferences: Codable, Equatable {
         rotateToFullscreen = (try? c.decodeIfPresent(Bool.self, forKey: .rotateToFullscreen)) ?? d.rotateToFullscreen
         shortsMutedWhenOtherAudio = (try? c.decodeIfPresent(Bool.self, forKey: .shortsMutedWhenOtherAudio)) ?? d.shortsMutedWhenOtherAudio
         autoplayShorts = (try? c.decodeIfPresent(Bool.self, forKey: .autoplayShorts)) ?? d.autoplayShorts
+        liquidGlass = (try? c.decodeIfPresent(Bool.self, forKey: .liquidGlass)) ?? d.liquidGlass
     }
 }
 

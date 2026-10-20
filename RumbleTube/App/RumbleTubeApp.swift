@@ -88,6 +88,7 @@ struct RootView: View {
             }
         }
         .environmentObject(shorts)
+        .minimizingTabBar()
         .tint(Color(hex: prefs.accent.hex))
         .preferredColorScheme(scheme)
         .id(prefs.accent)   // rebuild so every accent-coloured view picks up a new accent

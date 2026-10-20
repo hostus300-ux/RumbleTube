@@ -50,9 +50,10 @@ struct AppToolbar: ViewModifier {
 /// Keeps the bottom of every screen clear of the mini player.
 struct MiniPlayerSpace: ViewModifier {
     @EnvironmentObject var player: PlayerModel
+    @EnvironmentObject var library: LibraryStore
     func body(content: Content) -> some View {
         content.safeAreaInset(edge: .bottom, spacing: 0) {
-            if player.item != nil { Color.clear.frame(height: 66) }
+            if player.item != nil { Color.clear.frame(height: GlassUI.available && library.data.prefs.liquidGlass ? 78 : 66) }
         }
     }
 }
@@ -84,8 +85,19 @@ struct Chip: View {
             Text(title).font(.subheadline.weight(.semibold))
         }
         .padding(.horizontal, 14).padding(.vertical, 7)
-        .background(selected ? Color.primary : Color.secondary.opacity(0.18), in: Capsule())
+        .background {
+            if selected { Capsule().fill(Color.primary) }
+            else if !GlassUI.enabled { Capsule().fill(Color.secondary.opacity(0.18)) }
+        }
+        .modifier(ChipGlass(on: !selected))
         .foregroundStyle(selected ? Color(.systemBackground) : Color.primary)
+    }
+}
+
+private struct ChipGlass: ViewModifier {
+    let on: Bool
+    func body(content: Content) -> some View {
+        if on && GlassUI.enabled { content.glassCapsule() } else { content }
     }
 }
 
@@ -162,8 +174,7 @@ struct HomeScreen: View {
         }
         .refreshable { await model.load() }
         .task { if model.page == nil { await model.load() } }
-        .navigationTitle("Home")
-        .appToolbar()
+        .appHeader("Home")
         .miniPlayerSpace()
     }
 }
@@ -200,6 +211,7 @@ struct HomeRowView: View {
 /// Card for horizontal rows.
 struct CompactCard: View {
     let item: VideoItem
+    var width: CGFloat = 260
     @EnvironmentObject var library: LibraryStore
 
     var body: some View {
@@ -212,7 +224,7 @@ struct CompactCard: View {
             }
             Text(metaLine(item)).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
         }
-        .frame(width: 260)
+        .frame(width: width)
         .contentShape(Rectangle())
         .videoContextMenu(item)
     }
@@ -460,8 +472,7 @@ struct MyFeedScreen: View {
         }
         .refreshable { await reload() }
         .task(id: "\(account.loggedIn)|\(model.pill.rawValue)|\(library.data.follows.count)") { await reload() }
-        .navigationTitle("My Feed")
-        .appToolbar()
+        .appHeader("My Feed")
         .miniPlayerSpace()
         .sheet(isPresented: $showLogin) { LoginView().environmentObject(account) }
     }
@@ -603,8 +614,7 @@ struct AccountScreen: View {
             }
             .padding(.vertical, 12)
         }
-        .navigationTitle("Account")
-        .appToolbar(settings: true)
+        .appHeader("Account", settings: true)
         .miniPlayerSpace()
         .task(id: account.loggedIn) { if account.loggedIn { await account.loadProfile() } }
         .onAppear {
@@ -669,7 +679,7 @@ struct AccountScreen: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: 12) {
                         ForEach(items) { v in
-                            Button { player.play(v) } label: { CompactCard(item: v).frame(width: 220) }.buttonStyle(.plain)
+                            Button { player.play(v) } label: { CompactCard(item: v, width: 220) }.buttonStyle(.plain)
                         }
                     }
                     .padding(.horizontal, 12)

@@ -122,6 +122,15 @@ struct SettingsView: View {
 
             AccountSettingsSection()
 
+            Section {
+                Toggle("Liquid Glass", isOn: pref(\.liquidGlass))
+                    .disabled(!GlassUI.available)
+            } header: { Text("Look") } footer: {
+                Text(GlassUI.available
+                     ? "Glass header buttons, filter chips and a floating mini player, like Apple's own apps. The tab bar and menus always use the system look."
+                     : "Liquid Glass needs iOS 26 or later.")
+            }
+
             Section("Appearance") {
                 Picker("Theme", selection: pref(\.theme)) {
                     ForEach(ThemeMode.allCases) { Text($0.title).tag($0) }

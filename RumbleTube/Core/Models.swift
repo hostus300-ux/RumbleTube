@@ -102,6 +102,13 @@ struct VideoDetail: Codable, Hashable {
     var channelFollowers: String?
     var liveStatus: LiveStatus
     var streams: [StreamOption]
+    /// Live chat endpoint from the watch page.
+    var chatAPI: String? = nil
+    var chatID: String? = nil
+    var chat: ChatConfig? {
+        guard let a = chatAPI, let i = chatID else { return nil }
+        return ChatConfig(apiBase: a, chatID: i)
+    }
 
     /// Best default: adaptive HLS, else the highest MP4 up to 1080p.
     var defaultStream: StreamOption? {

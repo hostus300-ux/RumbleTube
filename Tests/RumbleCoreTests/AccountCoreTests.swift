@@ -302,3 +302,33 @@ final class ChannelSearchTests: XCTestCase {
         XCTAssertTrue(FollowingAPI.latestRequest().url!.absoluteString.contains("limit=50"))
     }
 }
+
+final class LiveChatTests: XCTestCase {
+    func testConfigFromWatchPage() {
+        let html = "x RumbleChat(\n\t\"https://web7.rumble.com/chat/api\",\n\t\"https://web7.rumble.com/chat/api\",\n\t448347576,\n\t10000001, [])"
+        let c = LiveChatParser.config(fromWatchPage: html)
+        XCTAssertEqual(c, ChatConfig(apiBase: "https://web7.rumble.com/chat/api", chatID: "448347576"))
+        XCTAssertEqual(LiveChatParser.streamURL(c!).absoluteString, "https://web7.rumble.com/chat/api/chat/448347576/stream")
+        XCTAssertNil(LiveChatParser.config(fromWatchPage: "<html></html>"))
+    }
+
+    func testInitEvent() throws {
+        let url = Bundle.module.url(forResource: "chat-init", withExtension: "json", subdirectory: "Fixtures")!
+        let e = try XCTUnwrap(LiveChatParser.parseEvent(Data(contentsOf: url)))
+        XCTAssertEqual(e.type, "init")
+        XCTAssertEqual(e.messages.map(\.username), ["ExampleViewer", "BigTipper", "ExampleChannel"])
+        XCTAssertEqual(e.messages[0].text, "First! & hello")
+        XCTAssertEqual(e.messages[1].rantCents, 5000)
+        XCTAssertEqual(e.messages[1].badges, ["verified", "whale-yellow"])
+        XCTAssertTrue(e.messages[2].isChannel)
+    }
+
+    func testSendBody() throws {
+        let r = LiveChatParser.sendRequest(ChatConfig(apiBase: "https://web7.rumble.com/chat/api", chatID: "1"), text: "hi", requestID: "abc")
+        XCTAssertEqual(r.url?.absoluteString, "https://web7.rumble.com/chat/api/chat/1/message")
+        let o = try JSONSerialization.jsonObject(with: r.httpBody!) as! [String: Any]
+        let d = o["data"] as! [String: Any]
+        XCTAssertEqual((d["message"] as! [String: Any])["text"] as? String, "hi")
+        XCTAssertEqual(d["request_id"] as? String, "abc")
+    }
+}

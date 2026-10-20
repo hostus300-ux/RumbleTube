@@ -41,13 +41,36 @@ struct PlayerScreen: View {
     @State private var more: [VideoItem] = []
     @State private var channelAvatar: String?
     @State private var moreFor: String?
+    @StateObject private var chat = LiveChatModel()
+    @State private var showChat = true
+
+    private var liveChat: ChatConfig? {
+        guard let d = player.detail, d.liveStatus == .isLive else { return nil }
+        return d.chat
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             Capsule().fill(Color.secondary.opacity(0.4)).frame(width: 40, height: 5).padding(.vertical, 6)
             videoArea
-            ScrollView { details.padding(.bottom, 40) }
+            if liveChat != nil {
+                Picker("", selection: $showChat) {
+                    Text("Live chat").tag(true)
+                    Text("Details").tag(false)
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 14).padding(.vertical, 8)
+            }
+            if liveChat != nil && showChat {
+                LiveChatView(chat: chat)
+            } else {
+                ScrollView { details.padding(.bottom, 40) }
+            }
         }
+        .task(id: liveChat) {
+            if let c = liveChat { chat.start(c) } else { chat.stop() }
+        }
+        .onDisappear { chat.stop() }
         .background(Color(.systemBackground))
         .sheet(isPresented: $showSkipPanel) {
             SkipPanel().environmentObject(player).environmentObject(library)
@@ -210,15 +233,34 @@ struct PlayerScreen: View {
 
 struct MiniPlayer: View {
     @EnvironmentObject var player: PlayerModel
+    @EnvironmentObject var library: LibraryStore
 
     var body: some View {
         if let item = player.item, !player.expanded {
-            VStack(spacing: 0) {
-                GeometryReader { g in
-                    Rectangle().fill(Color.rumbleGreen)
-                        .frame(width: player.duration > 0 ? g.size.width * min(1, player.currentTime / player.duration) : 0)
+            if GlassUI.available && library.data.prefs.liquidGlass {
+                bar(item)
+                    .overlay(alignment: .bottom) { progress.padding(.horizontal, 16) }
+                    .glassCard(22, interactive: true)
+                    .padding(.horizontal, 10).padding(.bottom, 6)
+            } else {
+                VStack(spacing: 0) {
+                    progress
+                    bar(item)
                 }
-                .frame(height: 2)
+                .background(.regularMaterial)
+            }
+        }
+    }
+
+    private var progress: some View {
+        GeometryReader { g in
+            Rectangle().fill(Color.rumbleGreen)
+                .frame(width: player.duration > 0 ? g.size.width * min(1, player.currentTime / player.duration) : 0)
+        }
+        .frame(height: 2)
+    }
+
+    private func bar(_ item: VideoItem) -> some View {
                 HStack(spacing: 10) {
                     Thumbnail(item: item).frame(width: 96).clipShape(RoundedRectangle(cornerRadius: 6))
                     VStack(alignment: .leading, spacing: 2) {
@@ -234,14 +276,11 @@ struct MiniPlayer: View {
                     }
                 }
                 .padding(.horizontal, 10).padding(.vertical, 6)
-            }
-            .background(.regularMaterial)
             .foregroundStyle(.primary)
             .contentShape(Rectangle())
             .onTapGesture { player.expanded = true }
             .gesture(DragGesture(minimumDistance: 20).onEnded { v in
                 if v.translation.height < -30 { player.expanded = true }
             })
-        }
     }
 }
