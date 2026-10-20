@@ -130,6 +130,12 @@ struct AppPreferences: Codable, Equatable {
     var liquidGlass = true
     /// "+" (upload / go live) button in the page header.
     var showCreateButton = true
+    /// Highest quality to save when downloading.
+    var downloadHeight = 720
+    /// Notify when channels you follow go live.
+    var liveAlerts = false
+    /// Play with the lowest-bitrate stream and show artwork instead of video.
+    var audioOnly = false
 
     static let seekChoices = [5, 10, 15, 30]
     static let rateChoices: [Double] = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0]
@@ -177,6 +183,9 @@ struct AppPreferences: Codable, Equatable {
         autoplayShorts = (try? c.decodeIfPresent(Bool.self, forKey: .autoplayShorts)) ?? d.autoplayShorts
         liquidGlass = (try? c.decodeIfPresent(Bool.self, forKey: .liquidGlass)) ?? d.liquidGlass
         showCreateButton = (try? c.decodeIfPresent(Bool.self, forKey: .showCreateButton)) ?? d.showCreateButton
+        downloadHeight = (try? c.decodeIfPresent(Int.self, forKey: .downloadHeight)) ?? d.downloadHeight
+        liveAlerts = (try? c.decodeIfPresent(Bool.self, forKey: .liveAlerts)) ?? d.liveAlerts
+        audioOnly = (try? c.decodeIfPresent(Bool.self, forKey: .audioOnly)) ?? d.audioOnly
     }
 }
 

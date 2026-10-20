@@ -177,8 +177,15 @@ final class AccountStore: ObservableObject {
     private func send(_ req: URLRequest) async throws -> (Data, Int) {
         var r = req
         r.setValue(RumbleHTTP.userAgent, forHTTPHeaderField: "User-Agent")
-        let (data, resp) = try await session.data(for: r)
-        return (data, (resp as? HTTPURLResponse)?.statusCode ?? 0)
+        do {
+            let (data, resp) = try await session.data(for: r)
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            if code != 200 { DiagLog.shared.request(r.url, status: code) }
+            return (data, code)
+        } catch {
+            DiagLog.shared.request(r.url, error: error)
+            throw error
+        }
     }
 
     // MARK: - Reply alerts (best effort: iOS decides when background refresh runs)

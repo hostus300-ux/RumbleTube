@@ -55,6 +55,7 @@ final class LiveChatModel: ObservableObject {
         do {
             let (bytes, resp) = try await RumbleHTTP.session.bytes(for: req)
             guard (resp as? HTTPURLResponse)?.statusCode == 200 else {
+                DiagLog.shared.request(req.url, status: (resp as? HTTPURLResponse)?.statusCode)
                 error = "Chat unavailable (\((resp as? HTTPURLResponse)?.statusCode ?? 0))"; return
             }
             connected = true; error = nil

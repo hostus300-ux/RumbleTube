@@ -240,6 +240,13 @@ struct VideoContextMenu: ViewModifier {
                 Label(library.data.inWatchLater(item.id) ? "Remove from Watch Later" : "Watch Later",
                       systemImage: library.data.inWatchLater(item.id) ? "clock.badge.xmark" : "clock")
             }
+            if !item.isLive {
+                if DownloadManager.shared.isDownloaded(item.id) {
+                    Button(role: .destructive) { DownloadManager.shared.delete(item.id) } label: { Label("Remove download", systemImage: "trash") }
+                } else {
+                    Button { DownloadManager.shared.download(item) } label: { Label("Download", systemImage: "arrow.down.circle") }
+                }
+            }
             if let c = item.channel {
                 Button { router.open(c) } label: { Label("Go to channel", systemImage: "person.crop.square") }
             }

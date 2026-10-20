@@ -166,3 +166,32 @@ enum RumbleURL {
         return String(path[r])
     }
 }
+
+// MARK: - Downloads
+
+/// A video saved for offline viewing.
+struct DownloadRecord: Codable, Hashable, Identifiable {
+    var detail: VideoDetail
+    var item: VideoItem
+    var fileName: String          // inside Documents/Downloads
+    var thumbFile: String?
+    var bytes: Int64
+    var quality: String
+    var savedAt: Date
+    var id: String { item.id }
+}
+
+enum DownloadPlan {
+    /// Best MP4 at or under `maxHeight` (HLS can't be saved as one file). Lowest MP4 if all are bigger.
+    static func stream(from streams: [StreamOption], maxHeight: Int) -> StreamOption? {
+        let mp4 = streams.filter { $0.kind == .mp4 }
+        return mp4.filter { ($0.height ?? 0) <= maxHeight }.max { ($0.height ?? 0) < ($1.height ?? 0) }
+            ?? mp4.min { ($0.height ?? 0) < ($1.height ?? 0) }
+    }
+
+    static let qualityChoices = [360, 480, 720, 1080]
+
+    static func size(_ bytes: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+}

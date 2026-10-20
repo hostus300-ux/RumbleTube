@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // MARK: - Channel
 
@@ -181,6 +182,14 @@ struct SettingsView: View {
                 Text("RumbleTube plays videos straight from Rumble's servers, so Rumble's ad player never loads. RumbleSkip handles sponsor reads inside videos.")
             }
 
+            Section {
+                NavigationLink { ReportProblemView().miniPlayerSpace() } label: {
+                    Label("Report a problem", systemImage: "ladybug")
+                }
+            } footer: {
+                Text("Shares a short log of what failed (pages, error codes). It never includes your password, cookies or what you searched for.")
+            }
+
             Section("Data") {
                 Button("Clear watch history", role: .destructive) { confirmClear = true }
                     .confirmationDialog("Clear history and resume positions?", isPresented: $confirmClear, titleVisibility: .visible) {
@@ -270,5 +279,50 @@ struct GestureSettingsView: View {
             }
         }
         .navigationTitle("Gestures")
+    }
+}
+
+
+struct ReportProblemView: View {
+    @EnvironmentObject var account: AccountStore
+    @EnvironmentObject var library: LibraryStore
+    @State private var entries: [String] = DiagLog.shared.entries
+    @State private var fileURL: URL?
+
+    private var header: [String: String] {
+        let info = Bundle.main.infoDictionary
+        return [
+            "App": "\(info?["CFBundleShortVersionString"] as? String ?? "?") (\(info?["CFBundleVersion"] as? String ?? "?"))",
+            "iOS": UIDevice.current.systemVersion,
+            "Device": UIDevice.current.model,
+            "Signed in": account.loggedIn ? "yes" : "no",
+            "Tabs": library.data.prefs.visibleTabs.map(\.rawValue).joined(separator: ","),
+            "Liquid Glass": library.data.prefs.liquidGlass ? "on" : "off",
+        ]
+    }
+
+    var body: some View {
+        List {
+            Section {
+                if let fileURL {
+                    ShareLink(item: fileURL) { Label("Send report", systemImage: "square.and.arrow.up") }
+                }
+                Button { UIPasteboard.general.string = DiagLog.shared.report(header: header) } label: {
+                    Label("Copy report", systemImage: "doc.on.doc")
+                }
+                Button("Clear log", role: .destructive) { DiagLog.shared.clear(); entries = []; fileURL = DiagLog.shared.reportFile(header: header) }
+            } footer: {
+                Text("Send it to whoever maintains your build (or paste it to Claude) to see exactly what Rumble changed.")
+            }
+            Section("Recent problems (\(entries.count))") {
+                if entries.isEmpty { Text("Nothing has gone wrong yet.").foregroundStyle(.secondary) }
+                ForEach(entries.reversed().prefix(150), id: \.self) { e in
+                    Text(e).font(.caption.monospaced()).textSelection(.enabled)
+                }
+            }
+        }
+        .navigationTitle("Report a problem")
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear { entries = DiagLog.shared.entries; fileURL = DiagLog.shared.reportFile(header: header) }
     }
 }

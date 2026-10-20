@@ -440,3 +440,31 @@ final class ChatEmoteTests: XCTestCase {
         XCTAssertEqual(ChatEmotes.parse(Data(#"{"items":[{"emotes":[{"name":"a","file":"x"}]}]}"#.utf8)).count, 1)
     }
 }
+
+final class DiagLogTests: XCTestCase {
+    func testLogsPathsNotQueries() {
+        let d = DiagLog.shared
+        d.clear()
+        d.request(URL(string: "https://rumble.com/search/video?q=secret+words"), status: 403)
+        d.log("player", "Playback failed")
+        let r = d.report(header: ["App": "0.9.0"])
+        XCTAssertTrue(r.contains("rumble.com/search/video → HTTP 403"))
+        XCTAssertFalse(r.contains("secret"))
+        XCTAssertTrue(r.contains("[player] Playback failed"))
+        XCTAssertTrue(r.contains("App: 0.9.0"))
+        d.clear()
+        XCTAssertTrue(d.report(header: [:]).contains("no problems logged"))
+    }
+}
+
+final class DownloadPlanTests: XCTestCase {
+    func testPicksBestMP4UnderLimit() {
+        let s = [StreamOption(kind: .hls, height: nil, bitrate: nil, url: "h"),
+                 StreamOption(kind: .mp4, height: 1080, bitrate: nil, url: "1080"),
+                 StreamOption(kind: .mp4, height: 720, bitrate: nil, url: "720"),
+                 StreamOption(kind: .mp4, height: 360, bitrate: nil, url: "360")]
+        XCTAssertEqual(DownloadPlan.stream(from: s, maxHeight: 720)?.url, "720")
+        XCTAssertEqual(DownloadPlan.stream(from: s, maxHeight: 240)?.url, "360", "falls back to the smallest")
+        XCTAssertNil(DownloadPlan.stream(from: [s[0]], maxHeight: 720), "HLS-only (live) can't be downloaded")
+    }
+}

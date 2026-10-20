@@ -68,3 +68,37 @@ jobs:
           make_latest: false
           body: "Unsigned build of ${{ github.sha }}. Sideload with AltStore / SideStore / your signing tool."
           files: RumbleTube.ipa
+
+  smoke:
+    # Launch the app in an iPhone simulator, screenshot every tab and fail if it crashes.
+    # Runs beside the IPA build, so a flaky simulator never blocks a release.
+    runs-on: macos-15-intel
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use the newest Xcode
+        run: |
+          XC=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -v -i beta | sort -V | tail -1)
+          if [ -n "$XC" ]; then sudo xcode-select -s "$XC"; fi
+          xcodebuild -version
+
+      - name: Generate project
+        run: brew install xcodegen && xcodegen generate
+
+      - name: Build for simulator
+        run: |
+          set -o pipefail
+          xcodebuild -project RumbleTube.xcodeproj -scheme RumbleTube -configuration Debug \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath simbuild \
+            CODE_SIGNING_ALLOWED=NO build 2>&1 | tee sim-build.log | grep -E "error:|BUILD (SUCCEEDED|FAILED)" || true
+          test -d simbuild/Build/Products/Debug-iphonesimulator/RumbleTube.app
+
+      - name: Launch each screen and screenshot
+        run: bash scripts/smoke.sh simbuild/Build/Products/Debug-iphonesimulator/RumbleTube.app screenshots
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots
+          path: screenshots

@@ -11,8 +11,15 @@ enum RumbleHTTP {
     }()
 
     static func get(_ url: URL) async throws -> (Data, Int) {
-        let (data, resp) = try await session.data(from: url)
-        return (data, (resp as? HTTPURLResponse)?.statusCode ?? 0)
+        do {
+            let (data, resp) = try await session.data(from: url)
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            if code != 200 { DiagLog.shared.request(url, status: code) }
+            return (data, code)
+        } catch {
+            if !(error is CancellationError), (error as? URLError)?.code != .cancelled { DiagLog.shared.request(url, error: error) }
+            throw error
+        }
     }
 }
 
@@ -56,6 +63,7 @@ final class RumbleService {
            !parsed.items.isEmpty || parsed.channel != nil {
             return parsed
         }
+        DiagLog.shared.log("parse", "listing fell back to web view: \(url.path)")
         return try await PageExtractor.shared.extract(url)
     }
 

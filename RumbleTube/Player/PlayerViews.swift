@@ -165,6 +165,9 @@ struct PlayerScreen: View {
                     pill(Label(player.segments.isEmpty ? "RumbleSkip" : "RumbleSkip · \(player.segments.count)",
                                systemImage: "forward.end.alt"), highlight: !player.segments.isEmpty)
                 }
+                if let item, d?.liveStatus != .isLive {
+                    DownloadPill(item: item)
+                }
                 if let item {
                     Button { library.data.toggleWatchLater(item) } label: {
                         pill(Label("Save", systemImage: library.data.inWatchLater(item.id) ? "clock.fill" : "clock"))

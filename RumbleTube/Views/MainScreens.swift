@@ -3,7 +3,7 @@ import SwiftUI
 // MARK: - Navigation routes & shared chrome
 
 enum AppRoute: Hashable {
-    case search, inbox, settings, followingList, earnings, history, watchLater, followedShorts, create
+    case search, inbox, settings, followingList, earnings, history, watchLater, followedShorts, create, downloads
     case listing(title: String, path: String)
 }
 
@@ -12,6 +12,7 @@ extension AppRoute {
         switch self {
         case .search: SearchScreen()
         case .create: CreateScreen()
+        case .downloads: DownloadsScreen()
         case .inbox: InboxView()
         case .settings: SettingsView()
         case .followingList: FollowingListScreen()
@@ -682,6 +683,8 @@ struct AccountScreen: View {
                 shelf("Watch Later", icon: "clock", route: .watchLater,
                       items: Array(library.data.watchLater.prefix(12)), empty: "Long-press any video and choose Watch Later.")
                 VStack(spacing: 0) {
+                    NavigationLink(value: AppRoute.downloads) { menuRow("Downloads", "arrow.down.circle") }
+                    Divider().padding(.leading, 56)
                     NavigationLink(value: AppRoute.settings) { menuRow("Settings", "gearshape") }
                     if account.loggedIn {
                         Divider().padding(.leading, 56)

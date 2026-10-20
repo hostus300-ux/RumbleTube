@@ -100,6 +100,17 @@ final class PlayerModel: ObservableObject {
         loadTask?.cancel()
         loadTask = Task { [weak self] in
             guard let self else { return }
+            // Downloaded: play the saved file, no network needed.
+            if let rec = DownloadManager.shared.record(newItem.id) {
+                self.detail = rec.detail
+                self.library.data.recordWatch(rec.item)
+                let local = StreamOption(kind: .mp4, height: nil, bitrate: nil, url: DownloadManager.shared.fileURL(rec).absoluteString)
+                self.start(local, at: self.library.data.resumePosition(for: rec.id, duration: rec.detail.duration))
+                self.loading = false
+                self.loadArtwork()
+                await self.loadSegments()
+                return
+            }
             do {
                 let d = try await RumbleService.shared.detail(for: newItem)
                 guard !Task.isCancelled, self.item?.id == newItem.id else { return }
@@ -121,6 +132,7 @@ final class PlayerModel: ObservableObject {
                 await self.loadSegments()
             } catch {
                 guard !Task.isCancelled, self.item?.id == newItem.id else { return }
+                DiagLog.shared.log("video", "\(newItem.id): \(error.localizedDescription)")
                 self.error = error.localizedDescription
                 self.loading = false
             }
@@ -195,6 +207,7 @@ final class PlayerModel: ObservableObject {
                     self.updateNowPlaying()
                 } else if status == .failed {
                     self.error = pi.error?.localizedDescription ?? "Playback failed"
+                    DiagLog.shared.log("player", "\(self.item?.id ?? "?") \(self.stream?.label ?? ""): \(self.error ?? "")")
                 }
             }
             .store(in: &itemObservers)

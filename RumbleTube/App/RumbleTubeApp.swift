@@ -18,6 +18,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         return true
     }
 
+    func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String,
+                     completionHandler: @escaping () -> Void) {
+        Task { @MainActor in DownloadManager.shared.backgroundCompletion = completionHandler }
+    }
+
     func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
         OrientationLock.mask
     }
@@ -110,6 +115,7 @@ struct RootView: View {
         .onAppear {
             Theme.accentHex = prefs.accent.hex
             if !tabs.contains(router.tab) { router.tab = tabs.first ?? .account }
+            openLaunchScreen()
         }
         .onChange(of: prefs.accent) { a in Theme.accentHex = a.hex }
         .onChange(of: tabs) { t in if !t.contains(router.tab) { router.tab = t.first ?? .account } }
@@ -124,6 +130,17 @@ struct RootView: View {
                 .environmentObject(shorts)
                 .tint(Color(hex: prefs.accent.hex))
                 .preferredColorScheme(scheme)
+        }
+    }
+
+    /// `-launchTab <tab or screen>` (used by the CI simulator check to screenshot each screen).
+    private func openLaunchScreen() {
+        guard let want = UserDefaults.standard.string(forKey: "launchTab") else { return }
+        if let t = AppTab(rawValue: want) { router.tab = t; return }
+        let routes: [String: AppRoute] = ["search": .search, "inbox": .inbox, "settings": .settings, "create": .create]
+        if let r = routes[want] {
+            router.tab = .home
+            var p = NavigationPath(); p.append(r); router.paths[.home] = p
         }
     }
 
