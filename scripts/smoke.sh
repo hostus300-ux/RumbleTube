@@ -21,7 +21,7 @@ for screen in home shorts discover my-feed account search inbox settings; do
   xcrun simctl terminate "$DEV" "$BUNDLE" >/dev/null 2>&1 || true
   before=$(reports)
   xcrun simctl launch "$DEV" "$BUNDLE" -launchTab "$screen" -smokeTest YES >/dev/null 2>&1
-  sleep 14
+  sleep 30   # the Intel simulator can take 15–25 s to show the first frame after a relaunch
   xcrun simctl io "$DEV" screenshot "$OUT/$screen.png" >/dev/null 2>&1 || true
   # A crash always leaves a crash report; "not in launchctl" turned out to be unreliable.
   if [ "$(reports)" -gt "$before" ]; then
