@@ -149,6 +149,20 @@ final class HomeModel: ObservableObject {
 }
 
 /// Last good homepage, saved in Caches so a cold start can show it immediately.
+/// Followed channels from last time, so My Feed's circles appear instantly.
+enum FollowedChannelCache {
+    private static var url: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("followed-channels.json")
+    }
+    static func save(_ c: [FollowedChannel]) {
+        if let d = try? JSONEncoder().encode(c) { try? d.write(to: url, options: .atomic) }
+    }
+    static func load() -> [FollowedChannel] {
+        (try? Data(contentsOf: url)).flatMap { try? JSONDecoder().decode([FollowedChannel].self, from: $0) } ?? []
+    }
+    static func clear() { try? FileManager.default.removeItem(at: url) }
+}
+
 enum HomeCache {
     private static var url: URL {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("home-page.json")
@@ -423,7 +437,8 @@ struct SearchScreen: View {
 
 @MainActor
 final class MyFeedModel: ObservableObject {
-    @Published var channels: [FollowedChannel] = []
+    static let shared = MyFeedModel()
+    @Published var channels: [FollowedChannel] = FollowedChannelCache.load()
     @Published var liveByChannel: [String: VideoItem] = [:]
     @Published var items: [VideoItem] = []
     @Published var pill: MyFeedPill = .all
@@ -431,29 +446,20 @@ final class MyFeedModel: ObservableObject {
     @Published var error: String?
     @Published var hasMore = false
     private var offset = 0
+    private var channelsAt: Date?
+    private var feedKey: String?
 
-    func load(signedIn: Bool, localFollows: [ChannelRef]) async {
-        loading = true
-        defer { loading = false }
-        offset = 0
+    /// Circles first (they come from a small, fast request), then live rings and the feed fill in as each arrives.
+    func load(signedIn: Bool, localFollows: [ChannelRef], force: Bool = false) async {
         if signedIn {
-            async let chans = try? RumbleService.shared.followedChannels()
-            async let live = try? RumbleService.shared.followingFeed(pill: "live", offset: 0, limit: 30)
-            async let feed = try? RumbleService.shared.followingFeed(pill: pill.rawValue, offset: 0)
-            let (c, l, f) = await (chans, live, feed)
-            channels = c ?? []
-            var map: [String: VideoItem] = [:]
-            for v in l?.items ?? [] where v.isLive { if let p = v.channelPath?.lowercased(), map[p] == nil { map[p] = v } }
-            liveByChannel = map
-            if let f {
-                items = f.items.filter { $0.isShort != true }
-                hasMore = f.hasMore
-                offset = f.raw.count
-                error = nil
-            } else {
-                error = "Couldn't load your feed. Pull to try again."
-            }
+            async let c: Void = refreshChannels(force: force)
+            async let l: Void = refreshLive(force: force)
+            async let f: Void = loadFeed(force: force)
+            _ = await (c, l, f)
         } else {
+            loading = true
+            defer { loading = false }
+            offset = 0
             channels = localFollows.map { FollowedChannel(ref: $0, lastActivity: nil, liveViewers: nil, followers: nil) }
             let r = await RumbleService.shared.feed(localFollows)
             items = r.items
@@ -461,6 +467,42 @@ final class MyFeedModel: ObservableObject {
                                        uniquingKeysWith: { a, _ in a })
             hasMore = false
             error = r.failed.isEmpty ? nil : "Couldn't load: \(r.failed.map(\.name).joined(separator: ", "))"
+        }
+    }
+
+    /// Followed channels for the circles. Shown from the saved copy instantly; refreshed at most every 2 minutes.
+    func refreshChannels(force: Bool = false) async {
+        if !force, let t = channelsAt, Date().timeIntervalSince(t) < 120 { return }
+        guard let c = try? await RumbleService.shared.followedChannels() else { return }
+        channels = c
+        channelsAt = Date()
+        FollowedChannelCache.save(c)
+        AvatarCache.shared.prefetch(c.prefix(20).compactMap(\.ref.avatar))
+    }
+
+    private func refreshLive(force: Bool) async {
+        guard let l = try? await RumbleService.shared.followingFeed(pill: "live", offset: 0, limit: 30) else { return }
+        var map: [String: VideoItem] = [:]
+        for v in l.items where v.isLive { if let p = v.channelPath?.lowercased(), map[p] == nil { map[p] = v } }
+        liveByChannel = map
+    }
+
+    /// The video list for the selected pill (changing pills doesn't reload the circles).
+    func loadFeed(force: Bool = false) async {
+        let key = pill.rawValue
+        if !force, feedKey == key, !items.isEmpty { return }
+        loading = true
+        defer { loading = false }
+        offset = 0
+        if let f = try? await RumbleService.shared.followingFeed(pill: key, offset: 0) {
+            guard pill.rawValue == key else { return }        // user switched pills meanwhile
+            items = f.items.filter { $0.isShort != true }
+            hasMore = f.hasMore
+            offset = f.raw.count
+            feedKey = key
+            error = nil
+        } else if items.isEmpty {
+            error = "Couldn't load your feed. Pull to try again."
         }
     }
 
@@ -478,7 +520,7 @@ final class MyFeedModel: ObservableObject {
 }
 
 struct MyFeedScreen: View {
-    @StateObject private var model = MyFeedModel()
+    @ObservedObject private var model = MyFeedModel.shared
     @EnvironmentObject var account: AccountStore
     @EnvironmentObject var library: LibraryStore
     @EnvironmentObject var player: PlayerModel
@@ -505,14 +547,17 @@ struct MyFeedScreen: View {
                 if let e = model.error { Text(e).font(.caption).foregroundStyle(.secondary).padding() }
             }
         }
-        .refreshable { await reload() }
-        .task(id: "\(account.loggedIn)|\(model.pill.rawValue)|\(library.data.follows.count)") { await reload() }
+        .refreshable { await reload(force: true) }
+        .task(id: "\(account.loggedIn)|\(library.data.follows.count)") { await reload() }
+        .onChange(of: model.pill) { _ in Task { await model.loadFeed() } }
         .appHeader("My Feed")
         .miniPlayerSpace()
         .sheet(isPresented: $showLogin) { LoginView().environmentObject(account) }
     }
 
-    private func reload() async { await model.load(signedIn: account.loggedIn, localFollows: library.data.follows) }
+    private func reload(force: Bool = false) async {
+        await model.load(signedIn: account.loggedIn, localFollows: library.data.follows, force: force)
+    }
 
     private var signInBanner: some View {
         HStack(spacing: 12) {
@@ -775,8 +820,10 @@ struct FollowingListScreen: View {
         .miniPlayerSpace()
         .task {
             guard account.loggedIn else { return }
-            loading = true
-            channels = (try? await RumbleService.shared.followedChannels()) ?? []
+            if channels.isEmpty { channels = MyFeedModel.shared.channels }     // instant from cache
+            loading = channels.isEmpty
+            await MyFeedModel.shared.refreshChannels()
+            channels = MyFeedModel.shared.channels
             if let f = try? await RumbleService.shared.followingFeed(pill: "live", offset: 0, limit: 30) {
                 live = Dictionary(f.items.filter(\.isLive).compactMap { v in v.channelPath.map { ($0.lowercased(), v) } }, uniquingKeysWith: { a, _ in a })
             }

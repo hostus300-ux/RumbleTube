@@ -225,7 +225,7 @@ enum ListingParser {
 
 // MARK: - My Feed (following-latest / following-feed)
 
-struct FollowedChannel: Identifiable, Hashable {
+struct FollowedChannel: Identifiable, Hashable, Codable {
     var ref: ChannelRef
     var lastActivity: Date?
     var liveViewers: Int?

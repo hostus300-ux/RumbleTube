@@ -11,8 +11,8 @@ packages:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "0.8.2"
-    CURRENT_PROJECT_VERSION: "11"
+    MARKETING_VERSION: "0.8.3"
+    CURRENT_PROJECT_VERSION: "12"
 targets:
   RumbleTube:
     type: application

@@ -63,6 +63,8 @@ final class AccountStore: ObservableObject {
                                for: records.filter { $0.displayName.contains("rumble") })
         loggedIn = false; username = nil; notifications = []; hasUnread = false
         avatarURL = nil; followersText = nil; followingCount = nil
+        FollowedChannelCache.clear()
+        MyFeedModel.shared.channels = []
         UIApplication.shared.applicationIconBadgeNumber = 0
     }
 

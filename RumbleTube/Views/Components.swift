@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Current accent (set from preferences; the root view rebuilds when it changes).
 enum Theme {
@@ -121,19 +122,50 @@ struct ChannelAvatar: View {
     let name: String
     var url: String?
     var size: CGFloat = 36
+    @State private var image: UIImage?
 
     var body: some View {
         Circle().fill(Color.rumbleGreen.opacity(0.25))
             .overlay {
-                if let u = url, let url = URL(string: u) {
-                    AsyncImage(url: url) { $0.image?.resizable().scaledToFill() }
-                } else {
+                if let img = image ?? url.flatMap({ AvatarCache.shared.cached($0) }) {
+                    Image(uiImage: img).resizable().scaledToFill()
+                } else if url == nil {
                     Text(String(name.prefix(1)).uppercased()).font(.system(size: size * 0.45, weight: .bold))
                         .foregroundStyle(Color.rumbleGreen)
                 }
             }
             .frame(width: size, height: size)
             .clipShape(Circle())
+            .task(id: url) {
+                guard let url, AvatarCache.shared.cached(url) == nil else { return }
+                image = await AvatarCache.shared.load(url)
+            }
+    }
+}
+
+/// Small in-memory image cache for channel pictures, so circles and avatars draw instantly once seen.
+final class AvatarCache: @unchecked Sendable {
+    static let shared = AvatarCache()
+    private let cache = NSCache<NSString, UIImage>()
+    private init() { cache.countLimit = 400 }
+
+    func cached(_ url: String) -> UIImage? { cache.object(forKey: url as NSString) }
+
+    func load(_ url: String) async -> UIImage? {
+        if let i = cached(url) { return i }
+        guard let u = URL(string: url) else { return nil }
+        var r = URLRequest(url: u, cachePolicy: .returnCacheDataElseLoad)
+        r.setValue(RumbleHTTP.userAgent, forHTTPHeaderField: "User-Agent")
+        guard let res = try? await URLSession.shared.data(for: r), let img = UIImage(data: res.0) else { return nil }
+        // decode once at a small size so scrolling stays smooth
+        let k = 160 / max(img.size.width, img.size.height, 1)
+        let thumb = k < 1 ? (await img.byPreparingThumbnail(ofSize: CGSize(width: img.size.width * k, height: img.size.height * k)) ?? img) : img
+        cache.setObject(thumb, forKey: url as NSString)
+        return thumb
+    }
+
+    func prefetch(_ urls: [String]) {
+        for u in urls where cached(u) == nil { Task.detached(priority: .utility) { _ = await self.load(u) } }
     }
 }
 

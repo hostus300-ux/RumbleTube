@@ -25,6 +25,11 @@ final class LaunchGate: ObservableObject {
         let wait = 0.4 - Date().timeIntervalSince(start)
         if wait > 0 { try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000)) }
         ready = true
+        // Warm My Feed's circles in the background so the tab is ready when you get there.
+        Task {
+            if !AccountStore.shared.loggedIn { await AccountStore.shared.refreshStatus() }
+            if AccountStore.shared.loggedIn { await MyFeedModel.shared.refreshChannels() }
+        }
     }
 }
 
