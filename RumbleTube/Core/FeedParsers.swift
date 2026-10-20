@@ -41,6 +41,11 @@ enum RumbleJSON {
         item.progress = num((v["watching_progress"] as? [String: Any])?["last_time"]).flatMap { $0 > 0 ? $0 : nil }
         item.numericID = int((v["rumble_votes"] as? [String: Any])?["content_id"]).map(String.init) ?? int(v["id"]).map(String.init)
         item.commentListID = listID
+        let votes = v["rumble_votes"] as? [String: Any]
+        item.viewCount = int(v["views"])
+        item.likes = int(votes?["num_votes_up"])
+        item.dislikes = int(votes?["num_votes_down"])
+        item.commentCount = int((v["comments"] as? [String: Any])?["count"])
         return item.title.isEmpty ? nil : item
     }
 
@@ -64,16 +69,16 @@ enum RumbleJSON {
 
 // MARK: - Homepage
 
-struct HomePill: Hashable, Identifiable { var id: String; var title: String }
+struct HomePill: Hashable, Identifiable, Codable { var id: String; var title: String }
 
-struct HomeRow: Identifiable {
+struct HomeRow: Identifiable, Codable {
     var id: String
     var title: String
     var feedPath: String?
     var items: [VideoItem]
 }
 
-struct HomePage {
+struct HomePage: Codable {
     var hero: [VideoItem]
     var rows: [HomeRow]
     var pills: [HomePill]
@@ -99,9 +104,13 @@ enum HomeParser {
             } else if tag == "rum-videos-row-provider" {
                 // Shorts rows stay in the Shorts tab only.
                 if (try? parent.attr("kind")) == "shorts" { continue }
-                let items = RumbleJSON.videos(json["items"]).filter { $0.isShort != true }
+                var items = RumbleJSON.videos(json["items"]).filter { $0.isShort != true }
                 guard !items.isEmpty else { continue }
                 let path = try parent.attr("feed-path")
+                if path.hasPrefix("/category/") {
+                    let cat = try parent.attr("row-title")
+                    for i in items.indices { items[i].category = cat }
+                }
                 rows.append(HomeRow(id: try parent.attr("row-id"), title: try parent.attr("row-title"),
                                     feedPath: path.isEmpty ? nil : path, items: items))
             }
@@ -165,8 +174,10 @@ enum ListingParser {
             if TimeFormat.parseClock(t) != nil { duration = t }
         }
         var views: String?
+        var viewCount: Int?
         if let v = try c.select(".videostream__views").first() {
-            views = (try? v.attr("data-views")).flatMap { Int($0) }.map { CountFormat.short($0) }
+            viewCount = (try? v.attr("data-views")).flatMap { Int($0) }
+            views = viewCount.map { CountFormat.short($0) }
         }
         if views == nil, let v = try c.select(".video-item--views").first() { views = try v.text() }
         var watching: Int?
@@ -178,6 +189,7 @@ enum ListingParser {
                              channelPath: chanPath, channelAvatar: avatar, views: views,
                              published: try time?.attr("datetime"), publishedText: try time?.text(),
                              live: liveBadge, upcoming: upcoming)
+        item.viewCount = viewCount ?? views.flatMap { CountFormat.parse($0) }
         item.watching = watching
         if let vid = try? c.attr("data-video-id"), !vid.isEmpty { item.numericID = vid }
         return item

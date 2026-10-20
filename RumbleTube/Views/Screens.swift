@@ -123,6 +123,7 @@ struct SettingsView: View {
             AccountSettingsSection()
 
             Section {
+                Toggle("Show + (upload / go live) button", isOn: pref(\.showCreateButton))
                 Toggle("Liquid Glass", isOn: pref(\.liquidGlass))
                     .disabled(!GlassUI.available)
             } header: { Text("Look") } footer: {

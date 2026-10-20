@@ -3,7 +3,7 @@ import SwiftUI
 // MARK: - Navigation routes & shared chrome
 
 enum AppRoute: Hashable {
-    case search, inbox, settings, followingList, earnings, history, watchLater, followedShorts
+    case search, inbox, settings, followingList, earnings, history, watchLater, followedShorts, create
     case listing(title: String, path: String)
 }
 
@@ -11,6 +11,7 @@ extension AppRoute {
     @ViewBuilder var screen: some View {
         switch self {
         case .search: SearchScreen()
+        case .create: CreateScreen()
         case .inbox: InboxView()
         case .settings: SettingsView()
         case .followingList: FollowingListScreen()
@@ -117,20 +118,51 @@ struct FilterChips: View {
 
 @MainActor
 final class HomeModel: ObservableObject {
+    static let shared = HomeModel()
     @Published var page: HomePage?
     @Published var loading = false
     @Published var error: String?
+    @Published private(set) var fetchedAt: Date?
+
+    /// Show the last saved Home instantly (stale-while-revalidate). Returns true if a usable cache existed.
+    @discardableResult
+    func loadCache(maxAge: TimeInterval = 86_400) -> Bool {
+        guard page == nil, let c = HomeCache.load(maxAge: maxAge) else { return page != nil }
+        page = c
+        return true
+    }
 
     func load() async {
+        guard !loading else { return }
         loading = true
         defer { loading = false }
-        do { page = try await RumbleService.shared.home(); error = nil }
+        do {
+            let fresh = try await RumbleService.shared.home()
+            page = fresh; error = nil; fetchedAt = Date()
+            HomeCache.save(fresh)
+        }
         catch { if page == nil { self.error = error.localizedDescription } }
     }
 }
 
+/// Last good homepage, saved in Caches so a cold start can show it immediately.
+enum HomeCache {
+    private static var url: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("home-page.json")
+    }
+    static func save(_ p: HomePage) {
+        if let d = try? JSONEncoder().encode(p) { try? d.write(to: url, options: .atomic) }
+    }
+    static func load(maxAge: TimeInterval) -> HomePage? {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let mod = attrs[.modificationDate] as? Date, Date().timeIntervalSince(mod) < maxAge,
+              let d = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(HomePage.self, from: d)
+    }
+}
+
 struct HomeScreen: View {
-    @StateObject private var model = HomeModel()
+    @ObservedObject private var model = HomeModel.shared
     @EnvironmentObject var player: PlayerModel
     @State private var filter: ContentFilter = .all
 
@@ -173,7 +205,7 @@ struct HomeScreen: View {
             .padding(.bottom, 20)
         }
         .refreshable { await model.load() }
-        .task { if model.page == nil { await model.load() } }
+        .task { if model.fetchedAt == nil && !model.loading { await model.load() } }
         .appHeader("Home")
         .miniPlayerSpace()
     }

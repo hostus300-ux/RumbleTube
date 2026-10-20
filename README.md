@@ -1,6 +1,6 @@
 # RumbleTube
 
-[**⬇︎ Download the latest IPA**](https://github.com/hostus300-ux/RumbleTube/releases/download/latest/RumbleTube.ipa) · current version 0.7.0
+[**⬇︎ Download the latest IPA**](https://github.com/hostus300-ux/RumbleTube/releases/download/latest/RumbleTube.ipa) · current version 0.8.0
 
 An unofficial iPhone client for Rumble that works like the YouTube app, with **RumbleSkip** (SponsorBlock-style skipping) built in. On your home screen it shows up as **Rumble**.
 
@@ -9,7 +9,10 @@ An unofficial iPhone client for Rumble that works like the YouTube app, with **R
 **Tabs** (turn tabs on/off and reorder them in Settings → Tabs)
 - **Home:** Rumble's homepage, with a featured video, rows like Continue Watching and Live, and section buttons. Each row has "See all".
 - **Shorts:** a vertical swipe feed. It never interrupts music or podcasts from other apps.
-- **Create:** upload a video, or **Go live**. Go live opens the Rumble Studio app if you have it, and its App Store page if you don't.
+- **Discover:** swipe between **Videos** and **Live**.
+  - **Trending** (the default): videos from the last 7 days, ranked by views per hour and likes/comments, with older videos sinking as the week goes on. Live streams are ranked by viewers and chat speed. Cards show why, e.g. "↑ 4.1K views/hr".
+  - **For You:** picks based on the channels, topics and categories you watch, worked out on your phone. Nothing is sent anywhere.
+  - **Newest:** newest first.
 - **My Feed:**
   - Your Rumble subscriptions, with channel circles at the top. A red ring means the channel is live (tap to join the stream); a green ring means a recent upload.
   - Filters: All / Today / Live / Videos / Continue Watching.
@@ -17,7 +20,9 @@ An unofficial iPhone client for Rumble that works like the YouTube app, with **R
 - **Account:** profile, Your Videos, Following (live channels marked), Earnings, Watch History, Watch Later, Settings and Sign Out.
 
 **Everywhere**
-- Search and the notification bell sit in the top-right, on the same line as the page title.
+- **+**, search and the notification bell sit in the top-right, on the same line as the page title.
+  - **+** lets you upload a video or **Go live**. Go live opens the Rumble Studio app if you have it, and its App Store page if you don't. You can hide **+** in Settings.
+- On a cold start, a short launch animation covers loading, and the last Home page you saw appears instantly while a fresh one loads.
 - All / Videos / Live filters on Home, search results and every list.
 - Search shows matching channels and videos, sorted by relevance, newest or most viewed. You can also paste any rumble.com link.
 - Thumbnails show how far you've watched, from this phone or from Rumble, and finished videos get a "Watched" badge.
@@ -86,6 +91,7 @@ open RumbleTube.xcodeproj   # pick your team under Signing and run on your phone
 | Live chat & rants | `Core/LiveChatCore.swift`, `Player/LiveChat.swift` | Rumble's chat server-sent-event stream; messages and rants post to the same endpoints as rumble.com. |
 | Shorts | `Core/ShortsCore.swift`, `Views/ShortsView.swift` | `service.php?name=shorts.feed`, with a small pool of looping players. |
 | RumbleSkip | `Core/SkipCore.swift`, `Core/YouTubeMatch.swift` | Same API as the browser extension. Lookups use a hash prefix, so the server never learns exactly what you watch. |
+| Discover ranking | `Core/Discovery.swift`, `Views/DiscoverScreen.swift` | Trending and For You are computed on the phone from Rumble's view, vote, comment and chat numbers. Views/hour gets more accurate the more often you open Discover. |
 | Liquid Glass | `Views/Glass.swift` | `glassEffect` on iOS 26, with a blur fallback on older versions. |
 
 ## Tests

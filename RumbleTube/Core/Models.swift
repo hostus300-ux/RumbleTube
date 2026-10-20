@@ -25,6 +25,13 @@ struct VideoItem: Codable, Hashable, Identifiable {
     var numericID: String? = nil
     /// Embed id without the "v" (comment list).
     var commentListID: String? = nil
+    /// Raw numbers for ranking (Discover).
+    var viewCount: Int? = nil
+    var likes: Int? = nil
+    var dislikes: Int? = nil
+    var commentCount: Int? = nil
+    /// Section/category it was found in (e.g. "News"), used for personal ranking.
+    var category: String? = nil
 
     var publishedDate: Date? { published.flatMap(DateParsing.iso8601) }
     var durationSeconds: Double? { duration.flatMap(TimeFormat.parseClock) }

@@ -3,7 +3,7 @@ import Foundation
 // MARK: - Tabs
 
 enum AppTab: String, Codable, CaseIterable, Identifiable {
-    case home, shorts, create
+    case home, shorts, discover
     case myFeed = "my-feed"
     case account
     var id: String { rawValue }
@@ -11,7 +11,7 @@ enum AppTab: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .home: return "Home"
         case .shorts: return "Shorts"
-        case .create: return "Create"
+        case .discover: return "Discover"
         case .myFeed: return "My Feed"
         case .account: return "Account"
         }
@@ -20,7 +20,7 @@ enum AppTab: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .home: return "house"
         case .shorts: return "play.rectangle.on.rectangle"
-        case .create: return "plus.app"
+        case .discover: return "safari"
         case .myFeed: return "rectangle.stack.badge.play"
         case .account: return "person.crop.circle"
         }
@@ -128,6 +128,8 @@ struct AppPreferences: Codable, Equatable {
     var autoplayShorts = true
     /// iOS 26 Liquid Glass on the app's own controls (header, chips, mini player).
     var liquidGlass = true
+    /// "+" (upload / go live) button in the page header.
+    var showCreateButton = true
 
     static let seekChoices = [5, 10, 15, 30]
     static let rateChoices: [Double] = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0]
@@ -174,6 +176,7 @@ struct AppPreferences: Codable, Equatable {
         shortsMutedWhenOtherAudio = (try? c.decodeIfPresent(Bool.self, forKey: .shortsMutedWhenOtherAudio)) ?? d.shortsMutedWhenOtherAudio
         autoplayShorts = (try? c.decodeIfPresent(Bool.self, forKey: .autoplayShorts)) ?? d.autoplayShorts
         liquidGlass = (try? c.decodeIfPresent(Bool.self, forKey: .liquidGlass)) ?? d.liquidGlass
+        showCreateButton = (try? c.decodeIfPresent(Bool.self, forKey: .showCreateButton)) ?? d.showCreateButton
     }
 }
 

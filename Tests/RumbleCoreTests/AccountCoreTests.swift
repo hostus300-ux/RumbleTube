@@ -342,3 +342,88 @@ final class LiveChatTests: XCTestCase {
         XCTAssertEqual(d["request_id"] as? String, "abc")
     }
 }
+
+final class DiscoveryTests: XCTestCase {
+    let now = ISO8601DateFormatter().date(from: "2026-10-20T12:00:00Z")!
+
+    func v(_ id: String, ch: String, hoursAgo: Double, views: Int, likes: Int = 0, comments: Int = 0,
+           title: String = "A video", live: Bool = false, watching: Int? = nil, category: String? = nil) -> VideoItem {
+        var x = VideoItem(id: id, url: "https://rumble.com/\(id)", title: title, thumbnail: nil, duration: "10:00",
+                          channelName: ch, channelPath: "/c/\(ch)", channelAvatar: nil, views: nil,
+                          published: ISO8601DateFormatter().string(from: now.addingTimeInterval(-hoursAgo * 3600)),
+                          publishedText: nil, live: live, upcoming: false)
+        x.viewCount = views; x.likes = likes; x.commentCount = comments; x.watching = watching; x.category = category
+        return x
+    }
+
+    func testTrendingPrefersFreshVelocityAndDropsOld() {
+        let items = [
+            v("old", ch: "A", hoursAgo: 24 * 6, views: 500_000, likes: 5000),   // big but 6 days old
+            v("hot", ch: "B", hoursAgo: 5, views: 60_000, likes: 3000, comments: 400),
+            v("meh", ch: "C", hoursAgo: 30, views: 2_000),
+            v("ancient", ch: "D", hoursAgo: 24 * 10, views: 9_000_000),           // outside 7 days
+        ]
+        let r = TrendingRanker.videos(items, now: now, minimum: 0)
+        XCTAssertEqual(r.first?.id, "hot")
+        XCTAssertFalse(r.contains { $0.id == "ancient" })
+        XCTAssertEqual(r.first?.reason, "↑ 12K views/hr")
+    }
+
+    func testMeasuredVelocityUsesSnapshot() {
+        let a = v("a", ch: "A", hoursAgo: 48, views: 100_000)
+        let prev = ["a": ViewSnapshot(views: 90_000, at: now.addingTimeInterval(-2 * 3600))]
+        let vel = TrendingRanker.velocity(a, now: now, previous: prev["a"])!
+        XCTAssertEqual(vel.perHour, 5000, accuracy: 0.1)
+        XCTAssertTrue(vel.measured)
+    }
+
+    func testDiversityAndFallback() {
+        let same = (0..<5).map { v("s\($0)", ch: "Same", hoursAgo: 2 + Double($0), views: 50_000 - $0 * 100) }
+        let other = v("o", ch: "Other", hoursAgo: 3, views: 1_000)
+        let r = TrendingRanker.videos(same + [other], now: now, minimum: 0)
+        XCTAssertEqual(Array(r.prefix(3)).filter { $0.item.channelName == "Same" }.count, 2, "max 2 per channel early on")
+        XCTAssertEqual(r.count, 6, "held items still appear later")
+        var noViews = v("n", ch: "N", hoursAgo: 1, views: 0); noViews.viewCount = nil
+        XCTAssertEqual(TrendingRanker.videos([noViews], now: now).map(\.id), ["n"], "unscored fill newest-first")
+    }
+
+    func testLiveRanksByViewersAndChat() {
+        let a = v("a", ch: "A", hoursAgo: 1, views: 0, live: true, watching: 40_000)
+        let b = v("b", ch: "B", hoursAgo: 1, views: 0, live: true, watching: 800)
+        XCTAssertEqual(TrendingRanker.live([b, a]).map(\.id), ["a", "b"])
+        let r = TrendingRanker.live([b, a], chatPerMinute: ["b": 3000])
+        XCTAssertEqual(r.first?.id, "b", "very active chat lifts a smaller stream")
+        XCTAssertEqual(r.first?.reason, "3000 chats/min")
+    }
+
+    func testForYouProfileAndRanking() {
+        let hist = (0..<6).map { i in
+            (video: v("h\(i)", ch: "Timcast", hoursAgo: Double(i) * 24, views: 1, title: "Election fraud debate night \(i)",
+                      category: "News"), at: now.addingTimeInterval(-Double(i) * 86_400))
+        }
+        let p = TasteProfile.build(history: hist, completion: { _ in 1 }, follows: [], now: now)
+        XCTAssertFalse(p.isCold)
+        XCTAssertEqual(p.topChannels.first, "/c/timcast")
+        XCTAssertTrue(p.keywords.keys.contains("election"))
+        let cands = [
+            v("c1", ch: "Cooking", hoursAgo: 2, views: 10, title: "Pasta recipe", category: "Food"),
+            v("c2", ch: "Other", hoursAgo: 2, views: 10, title: "Election night debate recap", category: "News"),
+            v("c3", ch: "Timcast", hoursAgo: 2, views: 10, title: "Tonight", category: "News"),
+            v("h0", ch: "Timcast", hoursAgo: 2, views: 10, title: "Already seen"),
+        ]
+        let r = ForYouRanker.rank(cands, profile: p, live: false, watchedFraction: { $0.id == "h0" ? 1 : nil })
+        XCTAssertEqual(r.first?.id, "c3")
+        XCTAssertEqual(r.first?.reason, "Because you watch Timcast")
+        XCTAssertTrue(r.contains { $0.id == "c2" })
+        XCTAssertFalse(r.contains { $0.id == "c1" }, "unrelated content dropped")
+        XCTAssertFalse(r.contains { $0.id == "h0" }, "finished videos hidden")
+    }
+
+    func testHomePageIsCodable() throws {
+        let page = HomePage(hero: [v("a", ch: "A", hoursAgo: 1, views: 1)], rows: [HomeRow(id: "r", title: "Row", feedPath: "/x", items: [])],
+                            pills: [HomePill(id: "r", title: "Row")])
+        let back = try JSONDecoder().decode(HomePage.self, from: JSONEncoder().encode(page))
+        XCTAssertEqual(back.rows.first?.title, "Row")
+        XCTAssertEqual(back.hero.first?.viewCount, 1)
+    }
+}

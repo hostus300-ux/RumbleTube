@@ -11,8 +11,8 @@ packages:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "0.7.0"
-    CURRENT_PROJECT_VERSION: "8"
+    MARKETING_VERSION: "0.8.0"
+    CURRENT_PROJECT_VERSION: "9"
 targets:
   RumbleTube:
     type: application
@@ -29,7 +29,8 @@ targets:
         CFBundleDisplayName: Rumble
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
-        UILaunchScreen: {}
+        UILaunchScreen:
+          UIColorName: LaunchBackground
         UIBackgroundModes: [audio, fetch]
         BGTaskSchedulerPermittedIdentifiers: [com.hostus300.rumbletube.refresh]
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]

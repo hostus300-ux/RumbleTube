@@ -242,7 +242,8 @@ struct CreateScreen: View {
             }
             .padding(16)
         }
-        .appHeader("Create")
+        .navigationTitle("Create")
+        .navigationBarTitleDisplayMode(.inline)
         .miniPlayerSpace()
         .sheet(isPresented: $showUpload) {
             RumbleWebSheet(title: "Upload", url: URL(string: "https://rumble.com/upload.php")!)

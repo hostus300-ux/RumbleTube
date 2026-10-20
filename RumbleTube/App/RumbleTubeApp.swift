@@ -76,6 +76,8 @@ struct RootView: View {
     @EnvironmentObject var library: LibraryStore
     @EnvironmentObject var account: AccountStore
     @StateObject private var shorts = ShortsModel.shared
+    @StateObject private var gate = LaunchGate()
+    @State private var splashGone = false
 
     private var prefs: AppPreferences { library.data.prefs }
     private var scheme: ColorScheme? { prefs.theme == .system ? nil : (prefs.theme == .dark ? .dark : .light) }
@@ -89,6 +91,17 @@ struct RootView: View {
         }
         .environmentObject(shorts)
         .minimizingTabBar()
+        .overlay {
+            if !splashGone {
+                SplashView(reveal: gate.ready)
+                    .animation(.easeOut(duration: 0.35), value: gate.ready)
+            }
+        }
+        .task { await gate.run() }
+        .onChange(of: gate.ready) { r in
+            guard r else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { splashGone = true }
+        }
         .tint(Color(hex: prefs.accent.hex))
         .preferredColorScheme(scheme)
         .id(prefs.accent)   // rebuild so every accent-coloured view picks up a new accent
@@ -120,7 +133,7 @@ struct RootView: View {
         switch t {
         case .home: HomeScreen()
         case .shorts: ShortsView()
-        case .create: CreateScreen()
+        case .discover: DiscoverScreen()
         case .myFeed: MyFeedScreen()
         case .account: AccountScreen()
         }

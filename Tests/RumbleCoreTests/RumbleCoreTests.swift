@@ -182,14 +182,17 @@ final class RumbleCoreTests: XCTestCase {
         XCTAssertEqual(lib.prefs, AppPreferences())
 
         var p = AppPreferences()
-        XCTAssertEqual(p.visibleTabs, [.home, .shorts, .create, .myFeed, .account])
+        XCTAssertEqual(p.visibleTabs, [.home, .shorts, .discover, .myFeed, .account])
         p.tabs = [TabSetting(tab: .account, enabled: false), TabSetting(tab: .shorts, enabled: false),
                   TabSetting(tab: .home, enabled: true)]
-        XCTAssertEqual(p.visibleTabs, [.account, .home, .create, .myFeed], "account forced on, order kept, new tabs slotted in")
+        XCTAssertEqual(p.visibleTabs, [.account, .home, .discover, .myFeed], "account forced on, order kept, new tabs slotted in")
         // 0.4-era tab list (search/inbox/library no longer exist) is read leniently
         let oldPrefs = try JSONDecoder().decode(AppPreferences.self, from: Data(#"{"tabs":[{"tab":"home","enabled":true},{"tab":"search","enabled":true},{"tab":"shorts","enabled":false},{"tab":"library","enabled":true}]}"#.utf8))
         let oldTabs: [AppTab] = oldPrefs.visibleTabs
-        XCTAssertEqual(oldTabs, [AppTab.home, AppTab.create, AppTab.myFeed, AppTab.account])
+        XCTAssertEqual(oldTabs, [AppTab.home, AppTab.discover, AppTab.myFeed, AppTab.account])
+        // 0.7 had a Create tab; it's now the header "+" so the saved entry is dropped
+        let v07 = try JSONDecoder().decode(AppPreferences.self, from: Data(#"{"tabs":[{"tab":"home","enabled":true},{"tab":"create","enabled":true},{"tab":"account","enabled":true}]}"#.utf8))
+        XCTAssertEqual(v07.visibleTabs, [AppTab.home, AppTab.shorts, AppTab.discover, AppTab.myFeed, AppTab.account])
         XCTAssertEqual(p.action(for: .doubleTapRight), .seekForward)
         p.gestures[PlayerGesture.doubleTapRight.rawValue] = .skipSegment
         XCTAssertEqual(p.action(for: .doubleTapRight), .skipSegment)
