@@ -123,7 +123,7 @@ struct SplashMark: View {
         let d = max(0, e - hit)
         let approach = pow(min(1, e / hit), 2.2)                         // speeds up into the bar
         let spring = e < hit ? 0 : exp(-d * 6.5) * sin(d * 19)           // damped bounce after the hit
-        let triX = e < hit ? -6 + 10 * approach : 1 + 3 * exp(-d * 7) * cos(d * 19)
+        let triX = e < hit ? -6 + 10 * approach : 1 + 3 * pow(1 - min(1, d / 0.25), 3)   // one small recoil, then still
         ZStack {
             ForEach(0..<2) { i in
                 let q = (elapsed / 1.6 + Double(i) * 0.5).truncatingRemainder(dividingBy: 1)
