@@ -240,6 +240,7 @@ struct HomeScreen: View {
             }
             .padding(.bottom, 20)
         }
+        .reportsScrollToHeader()
         .refreshable {
             await model.load()
             if filter == .videos { await model.loadVideoRows() }
@@ -670,6 +671,7 @@ struct MyFeedScreen: View {
                 if let e = model.error { Text(e).font(.caption).foregroundStyle(.secondary).padding() }
             }
         }
+        .reportsScrollToHeader()
         .refreshable { await reload(force: true) }
         .task(id: "\(account.loggedIn)|\(library.data.follows.count)") { await reload() }
         .onChange(of: model.pill) { _ in Task { await model.loadFeed() } }
@@ -819,6 +821,7 @@ struct AccountScreen: View {
             }
             .padding(.vertical, 12)
         }
+        .reportsScrollToHeader()
         .refreshable {
             await account.loadProfile()
             await WatchHistorySync.shared.sync(force: true)

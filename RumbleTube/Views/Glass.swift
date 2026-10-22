@@ -101,14 +101,56 @@ extension View {
 
 // MARK: - Page header: big title with search / bell / settings on the same line
 
+/// Shared between a page's header and its scroll view: scrolling down compacts the header, scrolling up restores it.
+final class HeaderState: ObservableObject {
+    @Published var compact = false
+    private var lastY: CGFloat = 0
+
+    func scrolled(to y: CGFloat) {
+        let dy = y - lastY
+        lastY = y
+        if y < 30 { if compact { compact = false }; return }        // near the top: full header
+        if dy > 6, !compact { compact = true }                        // scrolling down
+        else if dy < -10, compact { compact = false }                 // scrolling up a little brings it back
+    }
+}
+
+private struct HeaderStateKey: EnvironmentKey { static let defaultValue: HeaderState? = nil }
+extension EnvironmentValues {
+    var headerState: HeaderState? {
+        get { self[HeaderStateKey.self] }
+        set { self[HeaderStateKey.self] = newValue }
+    }
+}
+
+/// Put on a page's main ScrollView so the header can shrink while scrolling (iOS 18+; no-op before).
+private struct ReportsScroll: ViewModifier {
+    @Environment(\.headerState) private var header
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *), let header {
+            content.onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y + $0.contentInsets.top } action: { _, y in
+                withAnimation(.easeInOut(duration: 0.2)) { header.scrolled(to: y) }
+            }
+        } else {
+            content
+        }
+    }
+}
+
+extension View {
+    func reportsScrollToHeader() -> some View { modifier(ReportsScroll()) }
+}
+
 struct AppHeader: ViewModifier {
     let title: String
     var settings = false
     @EnvironmentObject var account: AccountStore
     @EnvironmentObject var library: LibraryStore
+    @StateObject private var state = HeaderState()
 
     func body(content: Content) -> some View {
         let base = content
+            .environment(\.headerState, state)
             .navigationTitle(title)                  // used for the back button on pushed screens
             .toolbar(.hidden, for: .navigationBar)
         #if compiler(>=6.2)
@@ -123,11 +165,15 @@ struct AppHeader: ViewModifier {
         #endif
     }
 
+    private var compact: Bool { state.compact }
+
     private var bar: some View {
-        HStack(alignment: .center, spacing: 10) {
-            Text(title).font(.largeTitle.weight(.bold)).lineLimit(1).minimumScaleFactor(0.7)
+        HStack(alignment: .center, spacing: 8) {
+            Text(title)
+                .font(compact ? .headline.weight(.bold) : .title2.weight(.bold))
+                .lineLimit(1).minimumScaleFactor(0.7)
             Spacer(minLength: 8)
-            HStack(spacing: 6) {
+            HStack(spacing: compact ? 4 : 6) {
                 if library.data.prefs.showCreateButton { icon(.create, "video.badge.plus", "Create") }
                 icon(.search, "magnifyingglass", "Search")
                 icon(.inbox, account.hasUnread ? "bell.badge" : "bell", "Notifications", badge: account.hasUnread)
@@ -136,15 +182,16 @@ struct AppHeader: ViewModifier {
             .glassGroup()
         }
         .padding(.horizontal, 16)
-        .padding(.top, 4).padding(.bottom, 8)
+        .padding(.top, compact ? 0 : 2).padding(.bottom, compact ? 4 : 6)
+        .animation(.easeInOut(duration: 0.2), value: compact)
     }
 
     private func icon(_ route: AppRoute, _ name: String, _ label: String, badge: Bool = false) -> some View {
         NavigationLink(value: route) {
             Image(systemName: name)
                 .symbolRenderingMode(badge ? .multicolor : .monochrome)
-                .font(.system(size: 19, weight: .semibold))
-                .frame(width: 42, height: 42)
+                .font(.system(size: compact ? 13 : 15, weight: .semibold))
+                .frame(width: compact ? 28 : 34, height: compact ? 28 : 34)
                 .contentShape(Circle())
                 .glassCircle()
         }

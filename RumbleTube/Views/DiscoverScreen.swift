@@ -268,6 +268,7 @@ struct DiscoverScreen: View {
                 }
             }
         }
+        .reportsScrollToHeader()
         .refreshable { await model.refresh(force: true) }
         .miniPlayerSpace()
     }
