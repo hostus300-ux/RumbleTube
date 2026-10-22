@@ -65,7 +65,7 @@ struct SplashView: View {
 
     var body: some View {
         ZStack {
-            Color(hex: 0x16191D).ignoresSafeArea()
+            SplashBackground().ignoresSafeArea()
             ZStack {
                 RoundedRectangle(cornerRadius: 30, style: .continuous)
                     .fill(Color(hex: 0x85C742))
@@ -86,5 +86,23 @@ struct SplashView: View {
         }
         .allowsHitTesting(!reveal)
         .accessibilityHidden(true)
+    }
+}
+
+/// Deep navy with faint green rings spreading from the left edge.
+struct SplashBackground: View {
+    var body: some View {
+        Canvas { ctx, size in
+            ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Color(hex: 0x0A1724)))
+            let center = CGPoint(x: -size.width * 0.02, y: size.height * 0.5)
+            let spacing = max(16, size.width / 21)
+            let maxR = hypot(size.width * 1.05, size.height * 0.55)
+            var r = spacing
+            while r < maxR {
+                let ring = Path(ellipseIn: CGRect(x: center.x - r, y: center.y - r, width: r * 2, height: r * 2))
+                ctx.stroke(ring, with: .color(Color(hex: 0x85C742).opacity(0.11)), lineWidth: 2.4)
+                r += spacing
+            }
+        }
     }
 }
