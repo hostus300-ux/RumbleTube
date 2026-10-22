@@ -198,7 +198,8 @@ struct RootView: View {
             if t == .account, let img = meIcon {
                 Label { Text(t.title) } icon: { Image(uiImage: img).renderingMode(.original) }
             } else {
-                Label(t.title, systemImage: t.icon)
+                // Outline glyphs like Rumble's own tab bar (iOS fills tab symbols by default).
+                Label(t.title, systemImage: t.icon).environment(\.symbolVariants, .none)
             }
         }
         .tag(t)
