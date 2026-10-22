@@ -184,7 +184,7 @@ struct AppHeader: ViewModifier {
                 .lineLimit(1).minimumScaleFactor(0.7)
             Spacer(minLength: 8)
             HStack(spacing: compact ? 4 : 6) {
-                if library.data.prefs.showCreateButton { icon(.create, "video.badge.plus", "Create") }
+                if library.data.prefs.showCreateButton { icon(.create, "tab-create", "Create", asset: true) }
                 icon(.inbox, account.hasUnread ? "bell.badge" : "bell", "Notifications", badge: account.hasUnread)
                 icon(.search, "magnifyingglass", "Search")
                 if settings { icon(.settings, "gearshape", "Settings") }
@@ -196,11 +196,18 @@ struct AppHeader: ViewModifier {
         .animation(.easeInOut(duration: 0.2), value: compact)
     }
 
-    private func icon(_ route: AppRoute, _ name: String, _ label: String, badge: Bool = false) -> some View {
+    private func icon(_ route: AppRoute, _ name: String, _ label: String, badge: Bool = false, asset: Bool = false) -> some View {
         NavigationLink(value: route) {
-            Image(systemName: name)
-                .symbolRenderingMode(badge ? .multicolor : .monochrome)
-                .font(.system(size: compact ? 13 : 15, weight: .semibold))
+            Group {
+                if asset {
+                    Image(name).renderingMode(.template).resizable().scaledToFit()
+                        .frame(width: compact ? 15 : 18, height: compact ? 15 : 18)
+                } else {
+                    Image(systemName: name)
+                        .symbolRenderingMode(badge ? .multicolor : .monochrome)
+                        .font(.system(size: compact ? 13 : 15, weight: .semibold))
+                }
+            }
                 .frame(width: compact ? 28 : 34, height: compact ? 28 : 34)
                 .contentShape(Circle())
                 .glassCircle()

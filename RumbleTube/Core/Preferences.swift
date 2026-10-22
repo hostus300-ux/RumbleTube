@@ -25,6 +25,16 @@ enum AppTab: String, Codable, CaseIterable, Identifiable {
         case .account: return "person.crop.circle"
         }
     }
+    /// Custom outline glyph in the asset catalog (Rumble-style); nil uses `icon`.
+    var asset: String? {
+        switch self {
+        case .home: return "tab-home"
+        case .shorts: return "tab-shorts"
+        case .discover: return "tab-discover"
+        case .myFeed: return "tab-feed"
+        case .account: return nil
+        }
+    }
     /// Account holds Settings, so it can't be turned off.
     var required: Bool { self == .account }
 }

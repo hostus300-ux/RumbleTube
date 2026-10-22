@@ -199,7 +199,7 @@ struct RootView: View {
                 Label { Text(t.title) } icon: { Image(uiImage: img).renderingMode(.original) }
             } else {
                 // Outline glyphs like Rumble's own tab bar (iOS fills tab symbols by default).
-                Label(t.title, systemImage: t.icon).environment(\.symbolVariants, .none)
+                Label { Text(t.title) } icon: { t.image }
             }
         }
         .tag(t)

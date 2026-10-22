@@ -83,10 +83,12 @@ enum ContentFilter: String, CaseIterable, Identifiable {
 struct Chip: View {
     let title: String
     var icon: String? = nil
+    var asset: String? = nil
     var selected = false
     var body: some View {
         HStack(spacing: 5) {
-            if let icon { Image(systemName: icon).font(.caption.weight(.bold)) }
+            if let asset { Image(asset).renderingMode(.template).resizable().scaledToFit().frame(width: 15, height: 15) }
+            else if let icon { Image(systemName: icon).font(.caption.weight(.bold)) }
             Text(title).font(.subheadline.weight(.semibold))
         }
         .padding(.horizontal, 14).padding(.vertical, 7)
@@ -729,7 +731,7 @@ struct MyFeedScreen: View {
                 }
                 if account.loggedIn {
                     Divider().frame(height: 22)
-                    NavigationLink(value: AppRoute.followedShorts) { Chip(title: "Shorts", icon: AppTab.shorts.icon) }
+                    NavigationLink(value: AppRoute.followedShorts) { Chip(title: "Shorts", asset: AppTab.shorts.asset) }
                         .buttonStyle(.plain)
                 }
             }

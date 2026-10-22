@@ -234,7 +234,7 @@ struct TabSettingsView: View {
             Section {
                 ForEach(library.data.prefs.normalizedTabs) { t in
                     HStack {
-                        Label(t.tab.title, systemImage: t.tab.icon)
+                        Label { Text(t.tab.title) } icon: { t.tab.image }
                         Spacer()
                         if t.tab.required {
                             Text("Always on").font(.caption).foregroundStyle(.secondary)
