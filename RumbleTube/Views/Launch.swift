@@ -62,12 +62,13 @@ struct SplashView: View {
     var reveal: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var appear = false
+    @State private var start = Date()
 
     var body: some View {
         ZStack {
             SplashBackground().ignoresSafeArea()
             TimelineView(.animation(paused: reduceMotion || reveal)) { tl in
-                SplashMark(t: reduceMotion ? 0 : tl.date.timeIntervalSinceReferenceDate)
+                SplashMark(elapsed: reduceMotion ? 5 : tl.date.timeIntervalSince(start))
             }
             .scaleEffect(reveal && !reduceMotion ? 1.6 : (appear ? 1 : 0.86))
             .opacity(appear ? 1 : 0)
@@ -109,22 +110,23 @@ struct SplashBackground: View {
     }
 }
 
-/// The green play/skip button. Loops a "skip forward": the triangle slides into the bar and a new one
-/// glides in behind it, while soft glow rings pulse out from the button.
+/// The green play/skip button. Plays once: the triangle pushes into the bar, the bar springs back,
+/// and everything settles. Only the soft glow rings keep pulsing while the app finishes loading.
 struct SplashMark: View {
-    let t: Double
-    private let period = 1.3
+    let elapsed: Double
     private let green = Color(hex: 0x85C742)
     private let ink = Color(hex: 0x13200B)
+    private let hit = 0.4          // when the triangle reaches the bar
 
     var body: some View {
-        let p = (t.truncatingRemainder(dividingBy: period)) / period          // 0…1
-        let slide = ease(min(1, p / 0.55))                                     // first triangle moves out
-        let enter = ease(max(0, (p - 0.45) / 0.55))                            // next one comes in
-        let tap = p > 0.42 && p < 0.7 ? sin((p - 0.42) / 0.28 * .pi) : 0       // bar flinches as it's hit
+        let e = max(0, elapsed - 0.15)                                   // let the logo appear first
+        let d = max(0, e - hit)
+        let approach = pow(min(1, e / hit), 2.2)                         // speeds up into the bar
+        let spring = e < hit ? 0 : exp(-d * 6.5) * sin(d * 19)           // damped bounce after the hit
+        let triX = e < hit ? -6 + 10 * approach : 1 + 3 * exp(-d * 7) * cos(d * 19)
         ZStack {
             ForEach(0..<2) { i in
-                let q = (p + Double(i) * 0.5).truncatingRemainder(dividingBy: 1)
+                let q = (elapsed / 1.6 + Double(i) * 0.5).truncatingRemainder(dividingBy: 1)
                 RoundedRectangle(cornerRadius: 30 + 14 * q, style: .continuous)
                     .stroke(green.opacity(0.45 * (1 - q)), lineWidth: 3)
                     .frame(width: 128 + 70 * q, height: 94 + 70 * q)
@@ -132,23 +134,17 @@ struct SplashMark: View {
             RoundedRectangle(cornerRadius: 30, style: .continuous)
                 .fill(green)
                 .frame(width: 128, height: 94)
-                .shadow(color: green.opacity(0.35 + 0.25 * tap), radius: 18 + 10 * tap)
+                .shadow(color: green.opacity(0.35 + 0.3 * max(0, spring)), radius: 18 + 12 * max(0, spring))
             ZStack {
-                triangle.offset(x: -6 + 22 * slide).opacity(1 - ease(max(0, (p - 0.4) / 0.25)))
-                triangle.offset(x: -30 + 24 * enter).opacity(enter)
+                Image(systemName: "play.fill").font(.system(size: 40, weight: .black)).foregroundStyle(ink)
+                    .offset(x: triX)
                 RoundedRectangle(cornerRadius: 3).fill(ink)
-                    .frame(width: 7, height: 42 - 6 * tap)
-                    .offset(x: 24 + 2 * tap)
+                    .frame(width: 7, height: 42 - 7 * spring)
+                    .offset(x: 24 + 3 * spring)
             }
             .frame(width: 128, height: 94)
             .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
         }
-        .scaleEffect(1 + 0.025 * sin(t * 2 * .pi / (period * 2)))
+        .scaleEffect(1 + 0.04 * max(0, spring))
     }
-
-    private var triangle: some View {
-        Image(systemName: "play.fill").font(.system(size: 40, weight: .black)).foregroundStyle(ink)
-    }
-
-    private func ease(_ x: Double) -> Double { x < 0.5 ? 2 * x * x : 1 - pow(-2 * x + 2, 2) / 2 }
 }
