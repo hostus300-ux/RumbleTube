@@ -99,7 +99,17 @@ struct SplashBackground: View {
             let maxR = hypot(size.width * 1.05, size.height * 0.55)
             var r = spacing
             while r < maxR {
-                let ring = Path(ellipseIn: CGRect(x: center.x - r, y: center.y - r, width: r * 2, height: r * 2))
+                // Each ring wobbles: a few slow waves around it, bigger and shifted further out.
+                var ring = Path()
+                let amp = 2 + r * 0.03
+                let phase = r / spacing * 0.12
+                for i in 0...240 {
+                    let a = Double(i) / 240 * 2 * .pi
+                    let rr = r + amp * sin(a * 4 + phase) + amp * 0.35 * sin(a * 7 - phase * 1.5)
+                    let p = CGPoint(x: center.x + rr * cos(a), y: center.y + rr * sin(a))
+                    if i == 0 { ring.move(to: p) } else { ring.addLine(to: p) }
+                }
+                ring.closeSubpath()
                 ctx.stroke(ring, with: .color(Color(hex: 0x85C742).opacity(0.11)), lineWidth: 2.4)
                 r += spacing
             }
