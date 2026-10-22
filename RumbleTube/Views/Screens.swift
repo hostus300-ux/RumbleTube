@@ -8,9 +8,6 @@ struct ChannelView: View {
     @EnvironmentObject var library: LibraryStore
     @EnvironmentObject var account: AccountStore
     @StateObject private var model: ListingModel
-    @State private var rumbleFollowing: Bool?
-    @State private var followBusy = false
-    @State private var followError: String?
 
     init(channel: ChannelRef) {
         self.channel = channel
@@ -33,8 +30,6 @@ struct ChannelView: View {
     private var header: some View {
         let h = model.header
         let ref = ChannelRef(path: channel.path, name: h?.name ?? channel.name, avatar: h?.avatar ?? channel.avatar)
-        let canRumble = account.loggedIn && h?.rumbleID != nil
-        let following = canRumble ? (rumbleFollowing ?? h?.followingOnRumble ?? false) : library.data.isFollowing(channel.path)
         return VStack(spacing: 10) {
             if let b = h?.banner, let url = URL(string: b) {
                 AsyncImage(url: url) { $0.image?.resizable().scaledToFill() }
@@ -50,32 +45,8 @@ struct ChannelView: View {
             }
             .padding(.horizontal, 12)
             if !isMine {
-            Button {
-                if canRumble, let id = h?.rumbleID {
-                    let want = !following
-                    followBusy = true
-                    Task {
-                        do {
-                            try await account.setFollow(id: id, type: h?.rumbleType ?? "channel", follow: want)
-                            rumbleFollowing = want
-                            if want != library.data.isFollowing(channel.path) { library.data.toggleFollow(ref) }
-                            followError = nil
-                        } catch { followError = "Couldn't update follow on Rumble." }
-                        followBusy = false
-                    }
-                } else {
-                    library.data.toggleFollow(ref)
-                }
-            } label: {
-                Text(following ? "Following" : "Follow").font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity)
+                FollowControl(channel: ref, header: h, fullWidth: true)
             }
-            .disabled(followBusy)
-            .buttonStyle(.borderedProminent)
-            .tint(following ? Color.secondary.opacity(0.3) : Color.rumbleGreen)
-            .foregroundStyle(following ? Color.primary : Color.black)
-            .padding(.horizontal, 12)
-            }
-            if let followError { Text(followError).font(.caption).foregroundStyle(.red) }
         }
         .onChange(of: h?.avatar) { avatar in
             // keep the stored follow's avatar/name fresh

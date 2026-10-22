@@ -302,12 +302,8 @@ struct PlayerScreen: View {
             }
             .buttonStyle(.plain)
             Spacer()
-            let following = library.data.isFollowing(c.path)
-            Button(following ? "Following" : "Follow") { library.data.toggleFollow(c) }
-                .buttonStyle(.borderedProminent)
-                .tint(following ? Color.secondary.opacity(0.3) : Color.rumbleGreen)
-                .foregroundStyle(following ? Color.primary : Color.black)
-                .font(.subheadline.weight(.semibold))
+            FollowControl(channel: c)
+                .id(c.id)
         }
     }
 
