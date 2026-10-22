@@ -727,7 +727,7 @@ struct MyFeedScreen: View {
                 }
                 if account.loggedIn {
                     Divider().frame(height: 22)
-                    NavigationLink(value: AppRoute.followedShorts) { Chip(title: "Shorts", icon: "play.rectangle.on.rectangle") }
+                    NavigationLink(value: AppRoute.followedShorts) { Chip(title: "Shorts", icon: AppTab.shorts.icon) }
                         .buttonStyle(.plain)
                 }
             }
