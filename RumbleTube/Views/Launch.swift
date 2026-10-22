@@ -66,16 +66,8 @@ struct SplashView: View {
     var body: some View {
         ZStack {
             SplashBackground().ignoresSafeArea()
-            ZStack {
-                RoundedRectangle(cornerRadius: 30, style: .continuous)
-                    .fill(Color(hex: 0x85C742))
-                    .frame(width: 128, height: 94)
-                HStack(spacing: 6) {
-                    Image(systemName: "play.fill").font(.system(size: 40, weight: .black))
-                    RoundedRectangle(cornerRadius: 3).frame(width: 7, height: 42)
-                }
-                .foregroundStyle(Color(hex: 0x13200B))
-                .offset(x: appear || reduceMotion ? 6 : -6)
+            TimelineView(.animation(paused: reduceMotion || reveal)) { tl in
+                SplashMark(t: reduceMotion ? 0 : tl.date.timeIntervalSinceReferenceDate)
             }
             .scaleEffect(reveal && !reduceMotion ? 1.6 : (appear ? 1 : 0.86))
             .opacity(appear ? 1 : 0)
@@ -115,4 +107,48 @@ struct SplashBackground: View {
             }
         }
     }
+}
+
+/// The green play/skip button. Loops a "skip forward": the triangle slides into the bar and a new one
+/// glides in behind it, while soft glow rings pulse out from the button.
+struct SplashMark: View {
+    let t: Double
+    private let period = 1.3
+    private let green = Color(hex: 0x85C742)
+    private let ink = Color(hex: 0x13200B)
+
+    var body: some View {
+        let p = (t.truncatingRemainder(dividingBy: period)) / period          // 0…1
+        let slide = ease(min(1, p / 0.55))                                     // first triangle moves out
+        let enter = ease(max(0, (p - 0.45) / 0.55))                            // next one comes in
+        let tap = p > 0.42 && p < 0.7 ? sin((p - 0.42) / 0.28 * .pi) : 0       // bar flinches as it's hit
+        ZStack {
+            ForEach(0..<2) { i in
+                let q = (p + Double(i) * 0.5).truncatingRemainder(dividingBy: 1)
+                RoundedRectangle(cornerRadius: 30 + 14 * q, style: .continuous)
+                    .stroke(green.opacity(0.45 * (1 - q)), lineWidth: 3)
+                    .frame(width: 128 + 70 * q, height: 94 + 70 * q)
+            }
+            RoundedRectangle(cornerRadius: 30, style: .continuous)
+                .fill(green)
+                .frame(width: 128, height: 94)
+                .shadow(color: green.opacity(0.35 + 0.25 * tap), radius: 18 + 10 * tap)
+            ZStack {
+                triangle.offset(x: -6 + 22 * slide).opacity(1 - ease(max(0, (p - 0.4) / 0.25)))
+                triangle.offset(x: -30 + 24 * enter).opacity(enter)
+                RoundedRectangle(cornerRadius: 3).fill(ink)
+                    .frame(width: 7, height: 42 - 6 * tap)
+                    .offset(x: 24 + 2 * tap)
+            }
+            .frame(width: 128, height: 94)
+            .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+        }
+        .scaleEffect(1 + 0.025 * sin(t * 2 * .pi / (period * 2)))
+    }
+
+    private var triangle: some View {
+        Image(systemName: "play.fill").font(.system(size: 40, weight: .black)).foregroundStyle(ink)
+    }
+
+    private func ease(_ x: Double) -> Double { x < 0.5 ? 2 * x * x : 1 - pow(-2 * x + 2, 2) / 2 }
 }
