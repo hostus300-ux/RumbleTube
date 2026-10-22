@@ -204,20 +204,19 @@ struct DiscoverScreen: View {
     @State private var liveSort = DiscoverModel.Sort(rawValue: LibraryStore.shared.data.prefs.discoverSort) ?? .trending
 
     var body: some View {
-        VStack(spacing: 0) {
+        // The pages fill the screen and scroll underneath the glass header (title + Videos / Live).
+        TabView(selection: $page) {
+            feed(.videos, sort: $videoSort).tag(DiscoverModel.Page.videos)
+            feed(.live, sort: $liveSort).tag(DiscoverModel.Page.live)
+        }
+        .tabViewStyle(.page(indexDisplayMode: .never))
+        .animation(.easeInOut(duration: 0.2), value: page)
+        .appHeader("Discover") {
             Picker("Show", selection: $page) {
                 ForEach(DiscoverModel.Page.allCases) { Text($0.rawValue).tag($0) }
             }
             .pickerStyle(.segmented)
-            .padding(.horizontal, 16).padding(.bottom, 6)
-            TabView(selection: $page) {
-                feed(.videos, sort: $videoSort).tag(DiscoverModel.Page.videos)
-                feed(.live, sort: $liveSort).tag(DiscoverModel.Page.live)
-            }
-            .tabViewStyle(.page(indexDisplayMode: .never))
-            .animation(.easeInOut(duration: 0.2), value: page)
         }
-        .appHeader("Discover")
         .task { await model.refresh() }
     }
 

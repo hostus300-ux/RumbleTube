@@ -144,6 +144,8 @@ extension View {
 struct AppHeader: ViewModifier {
     let title: String
     var settings = false
+    /// Extra controls shown under the title inside the same glass bar (e.g. Discover's Videos / Live).
+    var accessory: AnyView? = nil
     @EnvironmentObject var account: AccountStore
     @EnvironmentObject var library: LibraryStore
     @StateObject private var state = HeaderState()
@@ -168,6 +170,14 @@ struct AppHeader: ViewModifier {
     private var compact: Bool { state.compact }
 
     private var bar: some View {
+        VStack(spacing: compact ? 4 : 6) {
+            titleRow
+            if let accessory { accessory.padding(.horizontal, 16) }
+        }
+        .padding(.bottom, accessory == nil ? 0 : 6)
+    }
+
+    private var titleRow: some View {
         HStack(alignment: .center, spacing: 8) {
             Text(title)
                 .font(compact ? .headline.weight(.bold) : .title2.weight(.bold))
@@ -203,4 +213,7 @@ struct AppHeader: ViewModifier {
 
 extension View {
     func appHeader(_ title: String, settings: Bool = false) -> some View { modifier(AppHeader(title: title, settings: settings)) }
+    func appHeader<A: View>(_ title: String, @ViewBuilder accessory: () -> A) -> some View {
+        modifier(AppHeader(title: title, accessory: AnyView(accessory())))
+    }
 }
