@@ -27,6 +27,8 @@ print(round(sum(1 for p in px if abs(p[0]-21) < 6 and abs(p[1]-25) < 6 and abs(p
 PY
 }
 reports() { find ~/Library/Logs/DiagnosticReports -iname '*RumbleTube*' 2>/dev/null | wc -l | tr -d ' '; }
+# Warm-up: the very first launch after install is slow on the Intel simulator and often isn't on screen in time.
+xcrun simctl launch "$DEV" "$BUNDLE" >/dev/null 2>&1; sleep 30
 for screen in home shorts discover my-feed account search inbox settings; do
   xcrun simctl terminate "$DEV" "$BUNDLE" >/dev/null 2>&1 || true
   before=$(reports)
