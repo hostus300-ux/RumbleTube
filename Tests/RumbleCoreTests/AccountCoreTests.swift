@@ -579,3 +579,22 @@ final class LiveViewersTests: XCTestCase {
                        "https://wn0.rumble.com/service.php?video_id=1&name=video.watching-now")
     }
 }
+
+final class MutingTests: XCTestCase {
+    func testMuteMatchAndTags() {
+        var lib = LibraryData()
+        lib.mute(path: "/c/SpamChannel?e9s=x", name: "Spam Channel", tag: "  Content spam that goes on and on  ")
+        let e = lib.muteEntry(path: "/c/spamchannel", name: nil)
+        XCTAssertEqual(e?.tag, "Content spam that go", "tags are cut to 20 characters")
+        XCTAssertEqual(e?.tag?.count, MuteTag.maxLength)
+        lib.mute(path: nil, name: "TrollUser", tag: "")
+        XCTAssertNotNil(lib.muteEntry(path: "/user/trolluser", name: nil), "commenters match by their /user/ path")
+        XCTAssertNotNil(lib.muteEntry(path: nil, name: "trolluser"), "or by username")
+        XCTAssertNil(lib.muteEntry(path: nil, name: "trolluser")?.tag)
+        XCTAssertNil(lib.muteEntry(path: "/c/other", name: "Other"))
+        lib.unmute("/user/trolluser")
+        XCTAssertNil(lib.muteEntry(path: nil, name: "TrollUser"))
+        let back = try! JSONDecoder().decode(LibraryData.self, from: JSONEncoder().encode(lib))
+        XCTAssertEqual(back.muted.count, 1)
+    }
+}

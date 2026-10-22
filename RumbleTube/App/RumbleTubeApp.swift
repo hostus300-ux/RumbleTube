@@ -134,8 +134,10 @@ struct RootView: View {
         .onChange(of: tabs) { t in if !t.contains(router.tab) { router.tab = t.first ?? .account } }
         .onChange(of: router.tab) { t in updateShorts(tab: t, expanded: player.expanded, minimizing: false) }
         .onChange(of: player.expanded) { e in updateShorts(tab: router.tab, expanded: e, minimizing: !e) }
+        .muteSheetHost(active: !player.expanded)
         .sheet(isPresented: $player.expanded) {
             PlayerScreen()
+                .muteSheetHost(active: true)
                 .environmentObject(player)
                 .environmentObject(library)
                 .environmentObject(router)

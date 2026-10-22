@@ -185,8 +185,8 @@ struct AppHeader: ViewModifier {
             Spacer(minLength: 8)
             HStack(spacing: compact ? 4 : 6) {
                 if library.data.prefs.showCreateButton { icon(.create, "video.badge.plus", "Create") }
-                icon(.search, "magnifyingglass", "Search")
                 icon(.inbox, account.hasUnread ? "bell.badge" : "bell", "Notifications", badge: account.hasUnread)
+                icon(.search, "magnifyingglass", "Search")
                 if settings { icon(.settings, "gearshape", "Settings") }
             }
             .glassGroup()

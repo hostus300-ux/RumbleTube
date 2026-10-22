@@ -464,7 +464,7 @@ final class PlayerModel: ObservableObject {
 
     func setQueue(_ more: [VideoItem]) {
         let lib = library.data
-        upNext = more.first { $0.id != item?.id && !$0.isLive && $0.isShort != true && (lib.watchFraction(for: $0) ?? 0) < 0.9 }
+        upNext = more.first { $0.id != item?.id && !$0.isLive && $0.isShort != true && (lib.watchFraction(for: $0) ?? 0) < 0.9 && lib.muteEntry(for: $0) == nil }
     }
 
     private func videoEnded() {

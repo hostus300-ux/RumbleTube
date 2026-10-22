@@ -287,7 +287,9 @@ struct CompactCard: View {
     var width: CGFloat = 260
     @EnvironmentObject var library: LibraryStore
 
-    var body: some View {
+    var body: some View { MuteGate(item: item, compactWidth: width) { card } }
+
+    private var card: some View {
         VStack(alignment: .leading, spacing: 6) {
             Thumbnail(item: item, progress: progress).clipShape(RoundedRectangle(cornerRadius: 10))
             Text(item.title).font(.subheadline.weight(.semibold)).lineLimit(2).multilineTextAlignment(.leading)

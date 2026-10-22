@@ -25,6 +25,7 @@ struct LibraryData: Codable, Equatable {
     var prefs = AppPreferences()
     var autoLinks: [String: AutoLinkRecord] = [:]
     var searchHistory: [String] = []
+    var muted: [MutedEntry] = []
 
     static let historyLimit = 500
 
@@ -45,6 +46,7 @@ struct LibraryData: Codable, Equatable {
         prefs = (try? c.decodeIfPresent(AppPreferences.self, forKey: .prefs)) ?? AppPreferences()
         autoLinks = (try? c.decodeIfPresent([String: AutoLinkRecord].self, forKey: .autoLinks)) ?? [:]
         searchHistory = (try? c.decodeIfPresent([String].self, forKey: .searchHistory)) ?? []
+        muted = (try? c.decodeIfPresent([MutedEntry].self, forKey: .muted)) ?? []
     }
 
     /// Merges Rumble's watch history (most recent first, no dates) into ours: videos we already have keep their

@@ -1,6 +1,6 @@
 # RumbleTube
 
-[**⬇︎ Download the latest IPA**](https://github.com/hostus300-ux/RumbleTube/releases/download/latest/RumbleTube.ipa) · current version 0.10.2
+[**⬇︎ Download the latest IPA**](https://github.com/hostus300-ux/RumbleTube/releases/download/latest/RumbleTube.ipa) · current version 0.11.0
 
 An unofficial iPhone client for Rumble that works like the YouTube app, with **RumbleSkip** (SponsorBlock-style skipping) built in. On your home screen it shows up as **Rumble**.
 
@@ -20,7 +20,7 @@ An unofficial iPhone client for Rumble that works like the YouTube app, with **R
 - **Me:** your profile picture is the tab icon. Profile, Your Videos, Following (live channels marked), Earnings, Watch History, Watch Later, Settings and Sign Out.
 
 **Everywhere**
-- **+**, search and the notification bell sit in the top-right, on the same line as the page title.
+- **+**, the notification bell and search sit in the top-right, on the same line as the page title.
   - **+** lets you upload a video or **Go live**. Go live opens the Rumble Studio app if you have it, and its App Store page if you don't. You can hide **+** in Settings.
 - On a cold start, a short launch animation covers loading, and the last Home page you saw appears instantly while a fresh one loads.
 - All / Videos / Live filters on Home, search results and every list.
@@ -65,6 +65,7 @@ An unofficial iPhone client for Rumble that works like the YouTube app, with **R
 - **Start pages:** in Settings, choose what Home, Discover and My Feed open on.
 - **Watch history** is a single list, synced from your Rumble Watch History and Continue Watching, including how far you got in each video.
 - **Widgets:** "Live now" from channels you follow, and "Continue watching". While you watch a live stream, a Lock Screen and Dynamic Island card shows the viewer count and how far behind live you are.
+- **Mute channels and users:** long-press a video (or use ⋯ on a channel page or comment) and add an optional short tag like "Content spam". Their videos still appear, shrunk with a blurred thumbnail and your tag as a badge; their comments are collapsed the same way. Tap **Show anyway** to see one. Replies from muted users don't show in Notifications or trigger alerts. Manage the list in Settings → Muted channels & users.
 - **Search history and suggestions,** including matching channels you follow.
 - **iPad:** a grid layout, with the video and live chat side by side.
 - **Rumble Watch Later:** your Rumble Watch Later list appears next to the phone's own list.

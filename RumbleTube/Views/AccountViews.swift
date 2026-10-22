@@ -132,7 +132,8 @@ struct InboxView: View {
     private var groups: [(String, [RumbleNotification])] {
         let cal = Calendar.current
         var today: [RumbleNotification] = [], week: [RumbleNotification] = [], earlier: [RumbleNotification] = []
-        for n in account.notifications {
+        let lib = LibraryStore.shared.data
+        for n in account.notifications where lib.muteEntry(path: n.actorPath, name: n.actorName) == nil {
             guard let d = n.createdOn else { earlier.append(n); continue }
             if cal.isDateInToday(d) { today.append(n) }
             else if Date().timeIntervalSince(d) < 7 * 86400 { week.append(n) }
@@ -526,8 +527,38 @@ struct CommentRow: View {
     var onVote: (Int) -> Void
     var onReply: () -> Void
     var onDelete: () -> Void
+    @ObservedObject private var library = LibraryStore.shared
+    @ObservedObject private var mute = MuteUI.shared
+
+    private var muteEntry: MutedEntry? {
+        isMine ? nil : library.data.muteEntry(path: comment.authorPath, name: comment.author)
+    }
 
     var body: some View {
+        if let e = muteEntry, !mute.revealed.contains(comment.id) {
+            HStack(spacing: 10) {
+                Image(systemName: "speaker.slash.fill").foregroundStyle(.secondary)
+                    .frame(width: depth == 0 ? 34 : 28)
+                VStack(alignment: .leading, spacing: 5) {
+                    MuteBadge(tag: e.tag)
+                    Text("Comment from a user you muted").font(.footnote).foregroundStyle(.secondary)
+                    Button("Show anyway") { withAnimation { _ = mute.revealed.insert(comment.id) } }
+                        .font(.caption.weight(.semibold)).buttonStyle(.borderless)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.leading, CGFloat(min(depth, 4)) * 18)
+            .padding(.vertical, 4)
+            .contextMenu {
+                Button { mute.muteUser(comment) } label: { Label("Edit mute tag", systemImage: "tag") }
+                Button(role: .destructive) { library.data.unmute(e.key) } label: { Label("Unmute \(comment.author)", systemImage: "speaker.wave.2") }
+            }
+        } else {
+            full
+        }
+    }
+
+    private var full: some View {
         HStack(alignment: .top, spacing: 10) {
             ChannelAvatar(name: comment.author, url: comment.avatar, size: depth == 0 ? 34 : 28)
             VStack(alignment: .leading, spacing: 5) {
@@ -550,6 +581,20 @@ struct CommentRow: View {
                     .foregroundStyle(myVote == -1 ? Color.red : .secondary)
                     if comment.canReply { Button("Reply", action: onReply).foregroundStyle(.secondary) }
                     if comment.canDelete { Button("Delete", role: .destructive, action: onDelete) }
+                    if !isMine {
+                        Spacer(minLength: 0)
+                        Menu {
+                            if let e = library.data.muteEntry(path: comment.authorPath, name: comment.author) {
+                                Button { mute.muteUser(comment) } label: { Label("Edit mute tag", systemImage: "tag") }
+                                Button(role: .destructive) { library.data.unmute(e.key) } label: { Label("Unmute \(comment.author)", systemImage: "speaker.wave.2") }
+                            } else {
+                                Button { mute.muteUser(comment) } label: { Label("Mute \(comment.author)…", systemImage: "speaker.slash") }
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis").frame(width: 28, height: 20).contentShape(Rectangle())
+                        }
+                        .foregroundStyle(.secondary)
+                    }
                 }
                 .font(.caption.weight(.medium))
                 .buttonStyle(.borderless)

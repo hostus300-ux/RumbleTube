@@ -19,6 +19,20 @@ struct ChannelView: View {
         ListingView(model: model, style: .rows) { header.padding(.bottom, 8) }
             .navigationTitle(model.header?.name ?? channel.name)
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                if !isMine {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Menu {
+                            if let e = library.data.muteEntry(path: channel.path, name: channel.name) {
+                                Button { MuteUI.shared.muteChannel(channel) } label: { Label("Edit mute tag", systemImage: "tag") }
+                                Button(role: .destructive) { library.data.unmute(e.key) } label: { Label("Unmute channel", systemImage: "speaker.wave.2") }
+                            } else {
+                                Button { MuteUI.shared.muteChannel(channel) } label: { Label("Mute channel…", systemImage: "speaker.slash") }
+                            }
+                        } label: { Image(systemName: "ellipsis.circle") }
+                    }
+                }
+            }
     }
 
     /// Your own channel: no Follow button.
@@ -85,6 +99,13 @@ struct SettingsView: View {
                 NavigationLink { SkipSettingsView().miniPlayerSpace() } label: { tweak("RumbleSkip", "forward.end.alt", .green) }
                 NavigationLink { GestureSettingsView().miniPlayerSpace() } label: { tweak("Gestures", "hand.tap", .orange) }
                 NavigationLink { TabSettingsView().miniPlayerSpace() } label: { tweak("Tabs & layout", "square.grid.2x2", .blue) }
+                NavigationLink { MutedListView().miniPlayerSpace() } label: {
+                    HStack {
+                        tweak("Muted channels & users", "speaker.slash", .gray)
+                        Spacer()
+                        if !library.data.muted.isEmpty { Text("\(library.data.muted.count)").foregroundStyle(.secondary) }
+                    }
+                }
                 Toggle(isOn: Binding(get: { library.data.skip.autoMatchYouTube },
                                      set: { library.data.skip.autoMatchYouTube = $0; PlayerModel.shared.settingsChanged() })) {
                     tweak("Auto-find YouTube skips", "wand.and.stars", .red)

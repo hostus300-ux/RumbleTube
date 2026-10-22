@@ -303,6 +303,13 @@ struct PlayerScreen: View {
                 }
             }
             .buttonStyle(.plain)
+            .contextMenu {
+                if let e = library.data.muteEntry(path: c.path, name: c.name) {
+                    Button(role: .destructive) { library.data.unmute(e.key) } label: { Label("Unmute channel", systemImage: "speaker.wave.2") }
+                } else {
+                    Button { MuteUI.shared.muteChannel(c) } label: { Label("Mute channel…", systemImage: "speaker.slash") }
+                }
+            }
             Spacer()
             FollowControl(channel: c)
                 .id(c.id)

@@ -132,6 +132,17 @@ final class AccountStore: ObservableObject {
         }
     }
 
+    /// True unless every unread notification is from someone you muted (those never alert you).
+    private func hasUnreadFromUnmuted() async -> Bool {
+        let lib = LibraryStore.shared.data
+        guard !lib.muted.isEmpty else { return true }
+        guard let res = try? await send(AccountRequests.notifications()), res.1 == 200,
+              let feed = try? NotificationParser.parse(res.0) else { return true }
+        let unread = feed.items.filter { !$0.read }
+        guard !unread.isEmpty else { return true }
+        return unread.contains { lib.muteEntry(path: $0.actorPath, name: $0.actorName) == nil }
+    }
+
     // MARK: - Comments
 
     func comments(listID: String, sort: String? = nil) async throws -> CommentPage {
@@ -247,7 +258,7 @@ final class AccountStore: ObservableObject {
     func backgroundCheck() async {
         let wasUnread = hasUnread
         await refreshStatus()
-        if hasUnread && !wasUnread && alertsEnabled {
+        if hasUnread && !wasUnread && alertsEnabled, await hasUnreadFromUnmuted() {
             let content = UNMutableNotificationContent()
             content.title = "Rumble"
             content.body = "You have new notifications — tap to see who replied."

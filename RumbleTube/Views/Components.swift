@@ -182,7 +182,9 @@ struct VideoCard: View {
     let item: VideoItem
     @EnvironmentObject var library: LibraryStore
 
-    var body: some View {
+    var body: some View { MuteGate(item: item) { card } }
+
+    private var card: some View {
         VStack(alignment: .leading, spacing: 10) {
             Thumbnail(item: item, progress: progress)
             HStack(alignment: .top, spacing: 10) {
@@ -210,7 +212,9 @@ struct VideoRow: View {
     let item: VideoItem
     @EnvironmentObject var library: LibraryStore
 
-    var body: some View {
+    var body: some View { MuteGate(item: item) { row } }
+
+    private var row: some View {
         HStack(alignment: .top, spacing: 10) {
             Thumbnail(item: item, progress: progress).frame(width: 160).clipShape(RoundedRectangle(cornerRadius: 8))
             VStack(alignment: .leading, spacing: 3) {
@@ -249,6 +253,13 @@ struct VideoContextMenu: ViewModifier {
             }
             if let c = item.channel {
                 Button { router.open(c) } label: { Label("Go to channel", systemImage: "person.crop.square") }
+            }
+            if item.channelName != nil {
+                if let e = library.data.muteEntry(for: item) {
+                    Button { library.data.unmute(e.key) } label: { Label("Unmute channel", systemImage: "speaker.wave.2") }
+                } else {
+                    Button { MuteUI.shared.muteChannel(item) } label: { Label("Mute channel…", systemImage: "speaker.slash") }
+                }
             }
             if let url = URL(string: item.url) {
                 ShareLink(item: url) { Label("Share", systemImage: "square.and.arrow.up") }
