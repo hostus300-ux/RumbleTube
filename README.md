@@ -1,6 +1,6 @@
 # RumbleTube
 
-[**⬇︎ Download the latest IPA**](https://github.com/hostus300-ux/RumbleTube/releases/download/latest/RumbleTube.ipa) · current version 0.11.0
+[**⬇︎ Download the latest IPA**](https://github.com/hostus300-ux/RumbleTube/releases/download/latest/RumbleTube.ipa) · current version 0.12.0
 
 An unofficial iPhone client for Rumble that works like the YouTube app, with **RumbleSkip** (SponsorBlock-style skipping) built in. On your home screen it shows up as **Rumble**.
 
@@ -8,7 +8,12 @@ An unofficial iPhone client for Rumble that works like the YouTube app, with **R
 
 **Tabs** (turn tabs on/off and reorder them in Settings → Tabs)
 - **Home:** Rumble's homepage, with a featured video, rows like Continue Watching and Live, and section buttons. Each row has "See all".
-- **Shorts:** a vertical swipe feed. It never interrupts music or podcasts from other apps.
+- **Shorts:** a TikTok-style vertical feed. It never interrupts music or podcasts from other apps.
+  - **Following | For You** at the top when you're signed in; each keeps its place when you flip.
+  - Tap to pause, double-tap anywhere to like, and hold for 2× speed.
+  - Drag the progress bar to scrub, with a time readout.
+  - A right-hand rail with the creator (tap **+** to follow), like, dislike, comments, save to Watch Later, share, and ⋯ (Not interested, Mute channel, Open in full player).
+  - Tap a caption to expand it.
 - **Discover:** swipe between **Videos** and **Live**.
   - **Trending** (the default): videos from the last 7 days, ranked by views per hour and likes/comments, with older videos sinking as the week goes on. Live streams are ranked by viewers and chat speed. Cards show why, e.g. "↑ 4.1K views/hr".
   - **For You:** picks based on the channels, topics and categories you watch, worked out on your phone. Nothing is sent anywhere.
