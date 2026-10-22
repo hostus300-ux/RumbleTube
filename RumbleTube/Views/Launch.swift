@@ -85,28 +85,38 @@ struct SplashView: View {
 /// Deep navy with faint green rings spreading from the left edge.
 struct SplashBackground: View {
     var body: some View {
-        Canvas { ctx, size in
-            ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Color(hex: 0x0A1724)))
-            let center = CGPoint(x: -size.width * 0.02, y: size.height * 0.5)
-            let spacing = max(16, size.width / 21)
-            let maxR = hypot(size.width * 1.05, size.height * 0.55)
-            var r = spacing
-            while r < maxR {
-                // Each ring wobbles: a few slow waves around it, bigger and shifted further out.
-                var ring = Path()
-                let amp = 2 + r * 0.03
-                let phase = r / spacing * 0.12
-                for i in 0...240 {
-                    let a = Double(i) / 240 * 2 * .pi
-                    let rr = r + amp * sin(a * 4 + phase) + amp * 0.35 * sin(a * 7 - phase * 1.5)
-                    let p = CGPoint(x: center.x + rr * cos(a), y: center.y + rr * sin(a))
-                    if i == 0 { ring.move(to: p) } else { ring.addLine(to: p) }
-                }
-                ring.closeSubpath()
-                ctx.stroke(ring, with: .color(Color(hex: 0x85C742).opacity(0.11)), lineWidth: 2.4)
-                r += spacing
-            }
+        Canvas { ctx, size in Self.draw(&ctx, size) }
+    }
+
+    private static func draw(_ ctx: inout GraphicsContext, _ size: CGSize) {
+        ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Color(hex: 0x0A1724)))
+        let w: CGFloat = size.width, h: CGFloat = size.height
+        let cx: CGFloat = -w * 0.02, cy: CGFloat = h * 0.5
+        let spacing: CGFloat = max(16, w / 21)
+        let maxR: CGFloat = hypot(w * 1.05, h * 0.55)
+        let lineColor = Color(hex: 0x85C742).opacity(0.11)
+        var r: CGFloat = spacing
+        while r < maxR {
+            ctx.stroke(ring(cx: cx, cy: cy, r: r, spacing: spacing), with: .color(lineColor), lineWidth: 2.4)
+            r += spacing
         }
+    }
+
+    /// One ring that wobbles with a few slow waves, bigger further out.
+    private static func ring(cx: CGFloat, cy: CGFloat, r: CGFloat, spacing: CGFloat) -> Path {
+        var path = Path()
+        let amp: Double = 2 + Double(r) * 0.03
+        let phase: Double = Double(r / spacing) * 0.12
+        for i in 0...240 {
+            let a: Double = Double(i) / 240 * 2 * Double.pi
+            let wave1: Double = amp * sin(a * 4 + phase)
+            let wave2: Double = amp * 0.35 * sin(a * 7 - phase * 1.5)
+            let rr: Double = Double(r) + wave1 + wave2
+            let p = CGPoint(x: Double(cx) + rr * cos(a), y: Double(cy) + rr * sin(a))
+            if i == 0 { path.move(to: p) } else { path.addLine(to: p) }
+        }
+        path.closeSubpath()
+        return path
     }
 }
 
@@ -119,14 +129,15 @@ struct SplashMark: View {
     private let hit = 0.4          // when the triangle reaches the bar
 
     var body: some View {
-        let e = max(0, elapsed - 0.15)                                   // let the logo appear first
-        let d = max(0, e - hit)
-        let approach = pow(min(1, e / hit), 2.2)                         // speeds up into the bar
-        let spring = e < hit ? 0 : exp(-d * 6.5) * sin(d * 19)           // damped bounce after the hit
-        let triX = e < hit ? -6 + 10 * approach : 1 + 3 * pow(1 - min(1, d / 0.25), 3)   // one small recoil, then still
+        let e: Double = max(0, elapsed - 0.15)                           // let the logo appear first
+        let d: Double = max(0, e - hit)
+        let approach: Double = pow(min(1, e / hit), 2.2)                 // speeds up into the bar
+        let spring: Double = e < hit ? 0 : exp(-d * 6.5) * sin(d * 19)   // damped bounce after the hit
+        let glow: Double = max(0, spring)
+        let triX: Double = e < hit ? -6 + 10 * approach : 1 + 3 * pow(1 - min(1, d / 0.25), 3)   // one small recoil, then still
         ZStack {
             ForEach(0..<2) { i in
-                let q = (elapsed / 1.6 + Double(i) * 0.5).truncatingRemainder(dividingBy: 1)
+                let q: Double = (elapsed / 1.6 + Double(i) * 0.5).truncatingRemainder(dividingBy: 1)
                 RoundedRectangle(cornerRadius: 30 + 14 * q, style: .continuous)
                     .stroke(green.opacity(0.45 * (1 - q)), lineWidth: 3)
                     .frame(width: 128 + 70 * q, height: 94 + 70 * q)
@@ -134,7 +145,7 @@ struct SplashMark: View {
             RoundedRectangle(cornerRadius: 30, style: .continuous)
                 .fill(green)
                 .frame(width: 128, height: 94)
-                .shadow(color: green.opacity(0.35 + 0.3 * max(0, spring)), radius: 18 + 12 * max(0, spring))
+                .shadow(color: green.opacity(0.35 + 0.3 * glow), radius: 18 + 12 * glow)
             ZStack {
                 Image(systemName: "play.fill").font(.system(size: 40, weight: .black)).foregroundStyle(ink)
                     .offset(x: triX)
@@ -145,6 +156,6 @@ struct SplashMark: View {
             .frame(width: 128, height: 94)
             .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
         }
-        .scaleEffect(1 + 0.04 * max(0, spring))
+        .scaleEffect(1 + 0.04 * glow)
     }
 }
