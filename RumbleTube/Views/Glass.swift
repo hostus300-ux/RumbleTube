@@ -128,7 +128,7 @@ struct AppHeader: ViewModifier {
             Text(title).font(.largeTitle.weight(.bold)).lineLimit(1).minimumScaleFactor(0.7)
             Spacer(minLength: 8)
             HStack(spacing: 6) {
-                if library.data.prefs.showCreateButton { icon(.create, "plus", "Create") }
+                if library.data.prefs.showCreateButton { icon(.create, "video.badge.plus", "Create") }
                 icon(.search, "magnifyingglass", "Search")
                 icon(.inbox, account.hasUnread ? "bell.badge" : "bell", "Notifications", badge: account.hasUnread)
                 if settings { icon(.settings, "gearshape", "Settings") }

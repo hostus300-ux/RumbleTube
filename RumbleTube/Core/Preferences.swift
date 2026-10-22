@@ -19,9 +19,9 @@ enum AppTab: String, Codable, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .home: return "house"
-        case .shorts: return "play.rectangle.on.rectangle"
+        case .shorts: return "play.circle"
         case .discover: return "safari"
-        case .myFeed: return "rectangle.stack.badge.play"
+        case .myFeed: return "play.rectangle.on.rectangle"
         case .account: return "person.crop.circle"
         }
     }
