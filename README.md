@@ -74,6 +74,8 @@ An unofficial iPhone client for Rumble that works like the YouTube app, with **R
 - **Search history and suggestions,** including matching channels you follow.
 - **iPad:** a grid layout, with the video and live chat side by side.
 - **Rumble Watch Later:** your Rumble Watch Later list appears next to the phone's own list.
+- **Backup:** in Settings, export your RumbleTube settings to a file and import them after a reinstall. The file covers RumbleSkip and your own skip segments, muted channels and their tags, phone follows and Watch Later. Importing replaces settings and merges lists; watch history and your sign-in are never included.
+- **Custom app icon:** in Settings → Look, pick any picture, then position and zoom it. iOS doesn't let sideloaded apps swap in an arbitrary icon, so this adds a Home Screen icon (a small profile you install) that opens the app.
 - **Report a problem:** in Settings. It shares a log of what failed, without passwords, cookies or what you searched for.
 
 **Look**

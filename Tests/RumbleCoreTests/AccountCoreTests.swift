@@ -598,3 +598,44 @@ final class MutingTests: XCTestCase {
         XCTAssertEqual(back.muted.count, 1)
     }
 }
+
+final class HomeIconTests: XCTestCase {
+    func testProfile() throws {
+        let png = Data([0x89, 0x50, 0x4E, 0x47])
+        let d = try HomeIconProfile.make(name: "  My Rumble ", iconPNG: png, bundleID: "com.example.app")
+        let p = try PropertyListSerialization.propertyList(from: d, format: nil) as! [String: Any]
+        XCTAssertEqual(p["PayloadType"] as? String, "Configuration")
+        let clip = (p["PayloadContent"] as! [[String: Any]])[0]
+        XCTAssertEqual(clip["Label"] as? String, "My Rumble")
+        XCTAssertEqual(clip["URL"] as? String, "rumbletube://open")
+        XCTAssertEqual(clip["Icon"] as? Data, png)
+        XCTAssertEqual(clip["TargetApplicationBundleIdentifier"] as? String, "com.example.app")
+    }
+}
+
+final class SettingsBackupTests: XCTestCase {
+    func testRoundTripAndMerge() throws {
+        var old = LibraryData()
+        old.prefs.autoplay = false
+        old.prefs.discoverSort = "Newest"
+        old.mute(path: "/c/SpamTown", name: "SpamTown", tag: "Spam")
+        old.follows = [ChannelRef(path: "/c/Example", name: "Example")]
+        old.history = [HistoryEntry(video: VideoItem(id: "v1", url: "https://rumble.com/v1-x.html", title: "x"), watchedAt: Date())]
+        let file = try SettingsBackup(from: old, appVersion: "0.12.0").encoded()
+        XCTAssertFalse(String(decoding: file, as: UTF8.self).contains("v1-x"), "watch history is never exported")
+
+        var fresh = LibraryData()
+        fresh.mute(path: "/c/SpamTown", name: "SpamTown", tag: nil)
+        fresh.mute(path: "/user/other", name: "other", tag: nil)
+        let b = try SettingsBackup.decode(file)
+        b.apply(to: &fresh)
+        XCTAssertFalse(fresh.prefs.autoplay)
+        XCTAssertEqual(fresh.prefs.discoverSort, "Newest")
+        XCTAssertEqual(fresh.muted.count, 2)
+        XCTAssertEqual(fresh.muteEntry(path: "/c/spamtown", name: nil)?.tag, "Spam")
+        XCTAssertEqual(fresh.follows.count, 1)
+        b.apply(to: &fresh)
+        XCTAssertEqual(fresh.follows.count, 1, "importing twice doesn't duplicate")
+        XCTAssertTrue(b.summary.contains("1 muted"))
+    }
+}

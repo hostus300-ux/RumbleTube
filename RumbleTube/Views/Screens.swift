@@ -137,6 +137,7 @@ struct SettingsView: View {
                 Toggle("Shrink tab bar while scrolling", isOn: pref(\.minimizeTabBar))
                 Toggle("Liquid Glass", isOn: pref(\.liquidGlass))
                     .disabled(!GlassUI.available)
+                NavigationLink { CustomIconView().miniPlayerSpace() } label: { Text("Custom app icon") }
             } header: { Text("Look") } footer: {
                 Text(GlassUI.available
                      ? "Glass header buttons, filter chips and a floating mini player, like Apple's own apps. The tab bar and menus always use the system look."
@@ -200,6 +201,8 @@ struct SettingsView: View {
             } header: { Text("Skipping & ads") } footer: {
                 Text("RumbleTube plays videos straight from Rumble's servers, so Rumble's ad player never loads. RumbleSkip handles sponsor reads inside videos.")
             }
+
+            BackupSection()
 
             Section {
                 NavigationLink { ReportProblemView().miniPlayerSpace() } label: {
