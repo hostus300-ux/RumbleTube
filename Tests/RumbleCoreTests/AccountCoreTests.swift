@@ -546,3 +546,36 @@ final class HistoryMergeTests: XCTestCase {
         XCTAssertEqual(page.items.first?.progress ?? 0, 360.6, accuracy: 0.5)
     }
 }
+
+final class UpcomingTests: XCTestCase {
+    func make(_ extra: [String: Any]) -> VideoItem? {
+        var v: [String: Any] = ["title": "Stream", "relative_url": "/v7abcde-stream.html", "upload_date": "2026-10-22T13:14:34+00:00"]
+        extra.forEach { v[$0.key] = $0.value }
+        return RumbleJSON.video(v)
+    }
+
+    func testEndedStreamIsNotUpcoming() {
+        // what Rumble sends after a stream ends
+        let ended = make(["live": false, "live_placeholder": true, "livestream_status": 0, "duration": 8002])
+        XCTAssertEqual(ended?.upcoming, false)
+        XCTAssertEqual(ended?.isLive, false)
+        XCTAssertNotNil(ended?.duration)
+        let scheduled = make(["live": false, "live_placeholder": true, "livestream_status": 1, "duration": 0])
+        XCTAssertEqual(scheduled?.upcoming, true)
+        let liveNow = make(["live": true, "livestream_status": 2, "watching_now": 1234])
+        XCTAssertEqual(liveNow?.isLive, true)
+        XCTAssertEqual(liveNow?.upcoming, false)
+        XCTAssertEqual(liveNow?.watching, 1234)
+    }
+}
+
+final class LiveViewersTests: XCTestCase {
+    func testParse() {
+        let json = #"{"data":{"video_id":448541400,"num_watching_now":5795,"viewer_count":5795,"livestream_status":2}}"#
+        let r = LiveViewers.parse(Data(json.utf8))
+        XCTAssertEqual(r?.viewers, 5795)
+        XCTAssertEqual(r?.status, 2)
+        XCTAssertEqual(LiveViewers.request(videoID: "1").url?.absoluteString,
+                       "https://wn0.rumble.com/service.php?video_id=1&name=video.watching-now")
+    }
+}

@@ -35,7 +35,7 @@ enum RumbleJSON {
             channelAvatar: by?["thumb"] as? String,
             views: int(v["views"]).map { CountFormat.short($0) },
             published: v["upload_date"] as? String, publishedText: nil,
-            live: live, upcoming: status == 1 || (v["live_placeholder"] as? Bool) == true)
+            live: live, upcoming: isUpcoming(v, live: live, duration: dur, status: status))
         item.watching = live ? int(v["watching_now"]) : nil
         item.isShort = isShort
         item.progress = num((v["watching_progress"] as? [String: Any])?["last_time"]).flatMap { $0 > 0 ? $0 : nil }
@@ -47,6 +47,16 @@ enum RumbleJSON {
         item.dislikes = int(votes?["num_votes_down"])
         item.commentCount = int((v["comments"] as? [String: Any])?["count"])
         return item.title.isEmpty ? nil : item
+    }
+
+    /// Scheduled but not started. Ended streams keep `live_placeholder: true` (with a real duration and
+    /// status 0), so the placeholder flag alone isn't enough.
+    static func isUpcoming(_ v: [String: Any], live: Bool, duration: Double?, status: Int?, now: Date = Date()) -> Bool {
+        if live { return false }
+        if status == 1 { return true }
+        guard (v["live_placeholder"] as? Bool) == true, (duration ?? 0) == 0, status != 0 else { return false }
+        if let s = v["live_datetime"] as? String, let d = DateParsing.iso8601(s) { return d > now.addingTimeInterval(-6 * 3600) }
+        return true
     }
 
     static func videos(_ arr: Any?) -> [VideoItem] {

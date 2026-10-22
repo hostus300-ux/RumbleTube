@@ -77,7 +77,7 @@ struct Thumbnail: View {
             .clipped()
             .overlay(alignment: .bottomTrailing) {
                 if item.isLive {
-                    badge("LIVE", Color.red)
+                    badge(item.watching.map { "● LIVE · \(CountFormat.short($0))" } ?? "● LIVE", Color.red)
                 } else if item.upcoming == true {
                     badge("UPCOMING", Color.yellow.opacity(0.9), fg: .black)
                 } else if let d = item.duration {

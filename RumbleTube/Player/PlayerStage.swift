@@ -366,6 +366,10 @@ struct PlayerStage: View {
                         .background(player.atLiveEdge ? Color.red.opacity(0.9) : Color.white.opacity(0.22), in: Capsule())
                     }
                     .accessibilityLabel(player.atLiveEdge ? "Live" : "Jump to live")
+                    if let n = player.liveViewers {
+                        Label(CountFormat.short(n), systemImage: "eye").font(.caption.weight(.semibold)).monospacedDigit()
+                            .accessibilityLabel("\(n) watching")
+                    }
                     if !player.atLiveEdge {
                         Text("-" + TimeFormat.clock(liveScrubBehind)).font(.caption.weight(.medium)).monospacedDigit()
                     }

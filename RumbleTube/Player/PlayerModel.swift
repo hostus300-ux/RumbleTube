@@ -105,6 +105,7 @@ final class PlayerModel: ObservableObject {
         cancelAutoplay(release: false)
         if !library.data.prefs.audioOnlySticky { audioOnlyThisVideo = false }
         upNext = nil; more = []
+        viewersTask?.cancel(); liveViewers = nil
         item = newItem
         detail = nil; error = nil; loading = true; expanded = true; stream = nil
         currentTime = 0; duration = 0; artwork = nil; chapters = []
@@ -134,6 +135,7 @@ final class PlayerModel: ObservableObject {
                 let d = try await RumbleService.shared.detail(for: newItem)
                 guard !Task.isCancelled, self.item?.id == newItem.id else { return }
                 self.detail = d
+                self.startViewerPolling(d)
                 self.updateLiveActivity()
                 self.loadQueue(d)
                 self.chapters = Timestamps.chapters(in: d.description ?? "", duration: d.duration)
@@ -172,6 +174,7 @@ final class PlayerModel: ObservableObject {
     func close() {
         WidgetBridge.activity(nil)
         cancelAutoplay(release: false)
+        viewersTask?.cancel(); liveViewers = nil
         savePosition()
         loadTask?.cancel()
         player.pause()
@@ -394,7 +397,7 @@ final class PlayerModel: ObservableObject {
         lastActivityUpdate = Date()
         guard item != nil, isLive || audioOnly else { WidgetBridge.activity(nil); return }
         WidgetBridge.activity(.init(title: detail?.title ?? item?.title, channel: detail?.channel?.name ?? item?.channelName,
-                                    viewers: item?.watching, behindLive: behindLive, playing: isPlaying, isLive: isLive,
+                                    viewers: liveViewers ?? item?.watching, behindLive: behindLive, playing: isPlaying, isLive: isLive,
                                     audioOnly: audioOnly, position: currentTime, duration: duration))
     }
 
@@ -406,6 +409,30 @@ final class PlayerModel: ObservableObject {
         case .goLive: goLive()
         }
         Task { try? await Task.sleep(nanoseconds: 400_000_000); self.updateLiveActivity() }
+    }
+
+    // MARK: - Live viewer count
+
+    /// People watching right now (live streams), refreshed every 30 s.
+    @Published private(set) var liveViewers: Int?
+    private var viewersTask: Task<Void, Never>?
+
+    private func startViewerPolling(_ d: VideoDetail) {
+        viewersTask?.cancel()
+        liveViewers = item?.watching
+        guard d.liveStatus == .isLive, let vid = d.chatID ?? item?.numericID else { return }
+        let id = d.id
+        viewersTask = Task { [weak self] in
+            while !Task.isCancelled {
+                var r = LiveViewers.request(videoID: vid)
+                r.setValue(RumbleHTTP.userAgent, forHTTPHeaderField: "User-Agent")
+                if let res = try? await RumbleHTTP.session.data(for: r), let v = LiveViewers.parse(res.0) {
+                    guard let self, self.item?.id == id else { return }
+                    if let n = v.viewers { self.liveViewers = n; self.item?.watching = n }
+                }
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
+            }
+        }
     }
 
     // MARK: - Autoplay

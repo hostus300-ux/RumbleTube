@@ -196,3 +196,22 @@ enum ChatEmotes {
         return out.isEmpty ? [.text(text)] : out
     }
 }
+
+// MARK: - Live viewer count (what rumble.com polls every ~30 s)
+
+enum LiveViewers {
+    static func request(videoID: String) -> URLRequest {
+        var c = URLComponents(string: "https://wn0.rumble.com/service.php")!
+        c.queryItems = [URLQueryItem(name: "video_id", value: videoID), URLQueryItem(name: "name", value: "video.watching-now")]
+        var r = URLRequest(url: c.url!)
+        r.setValue("https://rumble.com/", forHTTPHeaderField: "Referer")
+        return r
+    }
+
+    /// (viewers, livestream_status) — status 2 = live, 1 = scheduled, 3/0 = ended.
+    static func parse(_ data: Data) -> (viewers: Int?, status: Int?)? {
+        guard let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let d = obj["data"] as? [String: Any] else { return nil }
+        return (RumbleJSON.int(d["num_watching_now"] ?? d["viewer_count"]), RumbleJSON.int(d["livestream_status"]))
+    }
+}

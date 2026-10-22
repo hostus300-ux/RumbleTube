@@ -233,7 +233,9 @@ struct PlayerScreen: View {
 
     private func meta(_ d: VideoDetail?, _ item: VideoItem?) -> String {
         var parts: [String] = []
-        if let v = d?.views { parts.append("\(CountFormat.short(v)) views") } else if let v = item?.views { parts.append("\(v) views") }
+        if d?.liveStatus == .isLive {
+            if let n = player.liveViewers ?? item?.watching { parts.append("\(n.formatted()) watching now") }
+        } else if let v = d?.views { parts.append("\(CountFormat.short(v)) views") } else if let v = item?.views { parts.append("\(v) views") }
         if let p = d?.published ?? item?.publishedDate { parts.append(DateParsing.relative(p)) }
         return parts.joined(separator: " · ")
     }
