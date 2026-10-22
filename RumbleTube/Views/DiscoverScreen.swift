@@ -199,9 +199,9 @@ enum SnapshotStore {
 struct DiscoverScreen: View {
     @ObservedObject private var model = DiscoverModel.shared
     @EnvironmentObject var player: PlayerModel
-    @State private var page: DiscoverModel.Page = .videos
-    @State private var videoSort: DiscoverModel.Sort = .trending
-    @State private var liveSort: DiscoverModel.Sort = .trending
+    @State private var page = DiscoverModel.Page(rawValue: LibraryStore.shared.data.prefs.discoverPage) ?? .videos
+    @State private var videoSort = DiscoverModel.Sort(rawValue: LibraryStore.shared.data.prefs.discoverSort) ?? .trending
+    @State private var liveSort = DiscoverModel.Sort(rawValue: LibraryStore.shared.data.prefs.discoverSort) ?? .trending
 
     var body: some View {
         VStack(spacing: 0) {

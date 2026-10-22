@@ -38,11 +38,26 @@ struct PlayerScreen: View {
     @State private var showSkipPanel = false
     @State private var showComments = false
     @State private var expandedDescription = false
-    @State private var more: [VideoItem] = []
+    private var more: [VideoItem] { player.more }
     @State private var channelAvatar: String?
     @State private var moreFor: String?
     @StateObject private var chat = LiveChatModel()
     @State private var showChat = true
+    enum Section: String, CaseIterable, Identifiable { case chat = "Live chat", details = "Details", comments = "Comments"; var id: String { rawValue } }
+    @State private var section: Section = .details
+
+    private var sections: [Section] { liveChat != nil ? [.chat, .details, .comments] : [.details, .comments] }
+
+    /// Comments as a section of the player (readable, no floating card).
+    @ViewBuilder private var inlineComments: some View {
+        if let item = player.item {
+            CommentsScreen(target: CommentTarget(
+                video: item,
+                listID: player.detail.map { $0.embedId.hasPrefix("v") ? String($0.embedId.dropFirst()) : $0.embedId },
+                videoNumericID: nil, focusCommentID: nil), inline: true)
+            .id(item.id)
+        }
+    }
 
     private var liveChat: ChatConfig? {
         guard let d = player.detail, d.liveStatus == .isLive else { return nil }
@@ -57,7 +72,7 @@ struct PlayerScreen: View {
                 if hsc == .regular { wideLayout } else { phoneLayout }
             }
             .task(id: liveChat) {
-                if let c = liveChat { chat.start(c) } else { chat.stop() }
+                if let c = liveChat { chat.start(c); section = .chat } else { chat.stop(); if section == .chat { section = .details } }
             }
             .onDisappear { chat.stop() }
             .background(Color(.systemBackground))
@@ -103,18 +118,18 @@ struct PlayerScreen: View {
         VStack(spacing: 0) {
             Capsule().fill(Color.secondary.opacity(0.4)).frame(width: 40, height: 5).padding(.vertical, 6)
             videoArea
-            if liveChat != nil {
-                Picker("", selection: $showChat) {
-                    Text("Live chat").tag(true)
-                    Text("Details").tag(false)
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, 14).padding(.vertical, 8)
+            Picker("", selection: $section) {
+                ForEach(sections) { Text($0.rawValue).tag($0) }
             }
-            if liveChat != nil && showChat {
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 14).padding(.vertical, 8)
+            switch section {
+            case .chat where liveChat != nil:
                 LiveChatView(chat: chat, videoURL: player.detail.flatMap { URL(string: $0.url) },
                              channel: player.detail?.channel ?? player.item?.channel)
-            } else {
+            case .comments:
+                inlineComments
+            default:
                 ScrollView { details.padding(.bottom, 40) }
             }
         }
@@ -204,6 +219,7 @@ struct PlayerScreen: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
             }
+            upNextRow
             if !more.isEmpty {
                 Text("More from \(d?.channel?.name ?? "this channel")").font(.subheadline.weight(.semibold)).padding(.top, 4)
                 ForEach(more.filter { $0.id != item?.id }.prefix(12)) { v in
@@ -228,7 +244,7 @@ struct PlayerScreen: View {
                 if let likes = d?.likes {
                     pill(Label(likes, systemImage: "hand.thumbsup"))
                 }
-                Button { showComments = true } label: {
+                Button { withAnimation { section = .comments } } label: {
                     pill(Label("Comments", systemImage: "text.bubble"))
                 }
                 Button { showSkipPanel = true } label: {
@@ -295,13 +311,34 @@ struct PlayerScreen: View {
         }
     }
 
+    /// "Up next" with the autoplay switch, so it's always clear what plays when this video ends.
+    @ViewBuilder private var upNextRow: some View {
+        if d_isVOD {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("Up next").font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Toggle("Autoplay", isOn: Binding(get: { player.autoplayOn }, set: { player.setAutoplay($0) }))
+                        .font(.footnote.weight(.semibold)).fixedSize()
+                }
+                if let next = player.upNext {
+                    Button { player.play(next) } label: { VideoRow(item: next) }.buttonStyle(.plain)
+                } else {
+                    Text("Nothing queued yet.").font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+            .padding(12)
+            .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+        }
+    }
+
+    private var d_isVOD: Bool { player.detail.map { $0.liveStatus != .isLive } ?? false }
+
     private func loadMore() async {
         guard let path = player.detail?.channel?.path, moreFor != path else { return }
         moreFor = path
-        more = []
         channelAvatar = nil
         if let page = try? await RumbleService.shared.channel(path) {
-            more = page.items
             channelAvatar = page.channel?.avatar ?? page.items.first(where: { $0.channelAvatar != nil })?.channelAvatar
         }
     }
@@ -358,7 +395,9 @@ struct MiniPlayer: View {
             .contentShape(Rectangle())
             .onTapGesture { if player.miniPlayerArmed { player.expanded = true } }
             .gesture(DragGesture(minimumDistance: 20).onEnded { v in
-                if v.translation.height < -30 { player.expanded = true }
+                if v.translation.height < -30 && abs(v.translation.width) < 60 { player.expanded = true }
+                // swipe right to close (also when the X is hidden in the compact bar)
+                else if v.translation.width > 80 && abs(v.translation.height) < 60 { withAnimation { player.close() } }
             })
     }
 }
@@ -411,7 +450,9 @@ struct MiniPlayerAccessory: View {
             .contentShape(Rectangle())
             .onTapGesture { if player.miniPlayerArmed { player.expanded = true } }
             .gesture(DragGesture(minimumDistance: 20).onEnded { v in
-                if v.translation.height < -30 { player.expanded = true }
+                if v.translation.height < -30 && abs(v.translation.width) < 60 { player.expanded = true }
+                // swipe right to close (also when the X is hidden in the compact bar)
+                else if v.translation.width > 80 && abs(v.translation.height) < 60 { withAnimation { player.close() } }
             })
         }
     }

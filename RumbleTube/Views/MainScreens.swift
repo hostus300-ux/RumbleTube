@@ -136,13 +136,30 @@ final class HomeModel: ObservableObject {
         return true
     }
 
+    /// Videos for category rows (the homepage rows only carry their live streams).
+    @Published var videoRows: [String: [VideoItem]] = [:]
+
+    func loadVideoRows() async {
+        guard let rows = page?.rows else { return }
+        await withTaskGroup(of: (String, [VideoItem]).self) { g in
+            for r in rows where videoRows[r.id] == nil {
+                guard let p = r.feedPath, p.split(separator: "/").count == 2, p.hasPrefix("/category/") else { continue }
+                g.addTask { @MainActor in
+                    let items = (try? await RumbleService.shared.listing(p + "/videos", allowWebView: false))?.items ?? []
+                    return (r.id, items.filter { $0.isShort != true }.map { var v = $0; v.category = r.title; return v })
+                }
+            }
+            for await (id, items) in g { videoRows[id] = items }
+        }
+    }
+
     func load() async {
         guard !loading else { return }
         loading = true
         defer { loading = false }
         do {
             let fresh = try await RumbleService.shared.home()
-            page = fresh; error = nil; fetchedAt = Date()
+            page = fresh; error = nil; fetchedAt = Date(); videoRows = [:]
             HomeCache.save(fresh)
         }
         catch { if page == nil { self.error = error.localizedDescription } }
@@ -182,7 +199,7 @@ enum HomeCache {
 struct HomeScreen: View {
     @ObservedObject private var model = HomeModel.shared
     @EnvironmentObject var player: PlayerModel
-    @State private var filter: ContentFilter = .all
+    @State private var filter: ContentFilter = ContentFilter(rawValue: LibraryStore.shared.data.prefs.homeFilter) ?? .all
 
     var body: some View {
         ScrollView {
@@ -210,6 +227,7 @@ struct HomeScreen: View {
                 ForEach(model.page?.rows ?? []) { row in
                     let items = row.items.filter(filter.keep)
                     if !items.isEmpty { HomeRowView(row: row, items: items) }
+                    else if filter == .videos, let v = model.videoRows[row.id], !v.isEmpty { HomeRowView(row: row, items: v) }
                 }
                 if model.loading && model.page == nil { ProgressView().frame(maxWidth: .infinity).padding(60) }
                 if let e = model.error {
@@ -222,7 +240,11 @@ struct HomeScreen: View {
             }
             .padding(.bottom, 20)
         }
-        .refreshable { await model.load() }
+        .refreshable {
+            await model.load()
+            if filter == .videos { await model.loadVideoRows() }
+        }
+        .task(id: filter) { if filter == .videos { await model.loadVideoRows() } }
         .task { if model.fetchedAt == nil && !model.loading { await model.load() } }
         .appHeader("Home")
         .miniPlayerSpace()
@@ -284,27 +306,69 @@ struct CompactCard: View {
 
 // MARK: - Any listing page ("See all", categories, Live…)
 
+/// A "See all" page. Rumble splits categories: /category/x holds the live streams and /category/x/videos the
+/// videos, so each filter loads the right page instead of filtering one list (which left Videos empty).
 struct ListingScreen: View {
     let title: String
     let path: String
-    @StateObject private var model: ListingModel
     @State private var filter: ContentFilter = .all
+    @StateObject private var mixed: ListingModel
+
+    private enum Kind { case category, liveOnly, mixed }
+    private var kind: Kind {
+        let parts = path.split(separator: "/")
+        if parts.count == 2, parts[0] == "category" { return .category }
+        if path.hasPrefix("/browse/live") { return .liveOnly }
+        return .mixed
+    }
 
     init(title: String, path: String) {
         self.title = title
         self.path = path
-        _model = StateObject(wrappedValue: ListingModel { page in try await RumbleService.shared.listing(path, page: page) })
+        _mixed = StateObject(wrappedValue: ListingModel { page in try await RumbleService.shared.listing(path, page: page) })
     }
 
     var body: some View {
-        ListingView(model: model, filter: filter) {
-            ScrollView(.horizontal, showsIndicators: false) { FilterChips(filter: $filter).padding(.horizontal, 12) }
-                .padding(.vertical, 8)
+        Group {
+            switch kind {
+            case .category:
+                ListingView(model: categoryModel(filter), filter: .all) { chips }
+                    .id(filter)
+            case .liveOnly:
+                ListingView(model: mixed, filter: .all)
+            case .mixed:
+                // Only offer All / Videos / Live when the page really has both.
+                let hasBoth = mixed.items.contains(where: \.isLive) && mixed.items.contains(where: { !$0.isLive })
+                ListingView(model: mixed, filter: hasBoth ? filter : .all) { if hasBoth { chips } }
+            }
         }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .appToolbar()
         .miniPlayerSpace()
+    }
+
+    private var chips: some View {
+        ScrollView(.horizontal, showsIndicators: false) { FilterChips(filter: $filter).padding(.horizontal, 12) }
+            .padding(.vertical, 8)
+    }
+
+    private func categoryModel(_ f: ContentFilter) -> ListingModel {
+        let base = path
+        let svc = RumbleService.shared
+        switch f {
+        case .live:
+            return ListingModel { page in try await svc.listing(base, page: page) }
+        case .videos:
+            return ListingModel { page in try await svc.listing(base + "/videos", page: page) }
+        case .all:
+            // Live streams on top, then the category's videos (which keep paging).
+            return ListingModel { page in
+                var videos = try await svc.listing(base + "/videos", page: page)
+                if page == 1, let live = try? await svc.listing(base) { videos.items = live.items.filter(\.isLive) + videos.items }
+                return videos
+            }
+        }
     }
 }
 
@@ -497,7 +561,7 @@ final class MyFeedModel: ObservableObject {
     @Published var channels: [FollowedChannel] = FollowedChannelCache.load()
     @Published var liveByChannel: [String: VideoItem] = [:]
     @Published var items: [VideoItem] = []
-    @Published var pill: MyFeedPill = .all
+    @Published var pill: MyFeedPill = MyFeedPill(rawValue: LibraryStore.shared.data.prefs.myFeedPill) ?? .all
     @Published var loading = false
     @Published var error: String?
     @Published var hasMore = false
@@ -755,7 +819,11 @@ struct AccountScreen: View {
             }
             .padding(.vertical, 12)
         }
-        .appHeader("Account", settings: true)
+        .refreshable {
+            await account.loadProfile()
+            await WatchHistorySync.shared.sync(force: true)
+        }
+        .appHeader("Me", settings: true)
         .miniPlayerSpace()
         .task(id: account.loggedIn) { if account.loggedIn { await account.loadProfile() } }
         .onAppear {
@@ -932,32 +1000,26 @@ struct EarningsScreen: View {
 }
 
 struct HistoryScreen: View {
-    enum Source: String, CaseIterable, Identifiable { case phone = "This phone", rumble = "Rumble"; var id: String { rawValue } }
     @EnvironmentObject var library: LibraryStore
     @EnvironmentObject var account: AccountStore
     @EnvironmentObject var player: PlayerModel
-    @State private var source: Source = .phone
+    @ObservedObject private var sync = WatchHistorySync.shared
 
     var body: some View {
-        VStack(spacing: 0) {
-            if account.loggedIn {
-                Picker("Source", selection: $source) { ForEach(Source.allCases) { Text($0.rawValue).tag($0) } }
-                    .pickerStyle(.segmented).padding(.horizontal, 12).padding(.vertical, 8)
+        List {
+            ForEach(library.data.history) { h in
+                Button { player.play(h.video) } label: { VideoRow(item: h.video) }.buttonStyle(.plain)
             }
-            if source == .rumble && account.loggedIn {
-                ListingView(model: ListingModel { page in try await RumbleService.shared.listing("/playlists/watch-history", page: page) },
-                            style: .rows)
-            } else {
-                List {
-                    ForEach(library.data.history) { h in
-                        Button { player.play(h.video) } label: { VideoRow(item: h.video) }.buttonStyle(.plain)
-                    }
-                    .onDelete { library.data.history.remove(atOffsets: $0) }
-                }
-                .listStyle(.plain)
-                .overlay { if library.data.history.isEmpty { Text("Videos you watch show up here.").foregroundStyle(.secondary) } }
+            .onDelete { library.data.history.remove(atOffsets: $0) }
+        }
+        .listStyle(.plain)
+        .overlay {
+            if library.data.history.isEmpty {
+                if sync.syncing { ProgressView() } else { Text("Videos you watch show up here.").foregroundStyle(.secondary) }
             }
         }
+        .refreshable { await sync.sync(force: true) }
+        .task { await sync.sync() }
         .navigationTitle("Watch History")
         .navigationBarTitleDisplayMode(.inline)
         .miniPlayerSpace()

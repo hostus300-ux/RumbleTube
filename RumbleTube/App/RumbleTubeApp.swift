@@ -1,3 +1,4 @@
+import UIKit
 import BackgroundTasks
 import SwiftUI
 import UserNotifications
@@ -89,6 +90,8 @@ struct RootView: View {
     @StateObject private var shorts = ShortsModel.shared
     @StateObject private var gate = LaunchGate()
     @State private var splashGone = false
+    /// Your Rumble profile picture, drawn as a small circle for the "Me" tab.
+    @State private var meIcon: UIImage?
 
     private var prefs: AppPreferences { library.data.prefs }
     private var useAccessory: Bool { GlassUI.accessoryAvailable && prefs.liquidGlass }
@@ -103,7 +106,7 @@ struct RootView: View {
         }
         .environmentObject(shorts)
         .miniPlayerAccessory(enabled: useAccessory && player.item != nil && !player.expanded && router.tab != .shorts)
-        .minimizingTabBar()
+        .minimizingTabBar(prefs.minimizeTabBar)
         .overlay {
             if !splashGone {
                 SplashView(reveal: gate.ready)
@@ -111,6 +114,10 @@ struct RootView: View {
             }
         }
         .task { await gate.run() }
+        .task(id: account.avatarURL) {
+            guard let url = account.avatarURL, let img = await AvatarCache.shared.load(url) else { meIcon = nil; return }
+            meIcon = Self.circle(img, side: 28)
+        }
         .onChange(of: gate.ready) { r in
             guard r else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { splashGone = true }
@@ -125,8 +132,8 @@ struct RootView: View {
         }
         .onChange(of: prefs.accent) { a in Theme.accentHex = a.hex }
         .onChange(of: tabs) { t in if !t.contains(router.tab) { router.tab = t.first ?? .account } }
-        .onChange(of: router.tab) { t in updateShorts(tab: t, expanded: player.expanded) }
-        .onChange(of: player.expanded) { e in updateShorts(tab: router.tab, expanded: e) }
+        .onChange(of: router.tab) { t in updateShorts(tab: t, expanded: player.expanded, minimizing: false) }
+        .onChange(of: player.expanded) { e in updateShorts(tab: router.tab, expanded: e, minimizing: !e) }
         .sheet(isPresented: $player.expanded) {
             PlayerScreen()
                 .environmentObject(player)
@@ -137,6 +144,16 @@ struct RootView: View {
                 .tint(Color(hex: prefs.accent.hex))
                 .preferredColorScheme(scheme)
         }
+    }
+
+    static func circle(_ img: UIImage, side: CGFloat) -> UIImage {
+        let r = UIGraphicsImageRenderer(size: CGSize(width: side, height: side))
+        return r.image { _ in
+            UIBezierPath(ovalIn: CGRect(x: 0, y: 0, width: side, height: side)).addClip()
+            let k = max(side / img.size.width, side / img.size.height)
+            let w = img.size.width * k, h = img.size.height * k
+            img.draw(in: CGRect(x: (side - w) / 2, y: (side - h) / 2, width: w, height: h))
+        }.withRenderingMode(.alwaysOriginal)
     }
 
     /// `-launchTab <tab or screen>` (used by the CI simulator check to screenshot each screen).
@@ -150,8 +167,11 @@ struct RootView: View {
         }
     }
 
-    private func updateShorts(tab: AppTab, expanded: Bool) {
-        if tab == .shorts && !expanded { shorts.activate() } else { shorts.deactivate() }
+    /// Shorts play only while their tab is in front. Minimizing a video while on the Shorts tab must not start a
+    /// Short (that paused the video): Shorts wait until you switch tabs or the video stops.
+    private func updateShorts(tab: AppTab, expanded: Bool, minimizing: Bool) {
+        let videoPlaying = player.item != nil && player.isPlaying
+        if tab == .shorts && !expanded && !(minimizing && videoPlaying) { shorts.activate() } else { shorts.deactivate() }
     }
 
     @ViewBuilder private func content(_ t: AppTab) -> some View {
@@ -172,7 +192,13 @@ struct RootView: View {
                 .navigationDestination(for: AppRoute.self) { $0.screen }
         }
         .overlay(alignment: .bottom) { if t != .shorts && !useAccessory { MiniPlayer() } }
-        .tabItem { Label(t.title, systemImage: t.icon) }
+        .tabItem {
+            if t == .account, let img = meIcon {
+                Label { Text(t.title) } icon: { Image(uiImage: img).renderingMode(.original) }
+            } else {
+                Label(t.title, systemImage: t.icon)
+            }
+        }
         .tag(t)
     }
 }

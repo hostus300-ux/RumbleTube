@@ -52,15 +52,65 @@ struct WidgetSnapshot: Codable {
 }
 
 #if canImport(ActivityKit)
-/// Lock Screen / Dynamic Island view of the live stream you're watching.
+/// Lock Screen / Dynamic Island card while a live stream or an audio-only video plays.
 @available(iOS 16.1, *)
 struct LiveStreamAttributes: ActivityAttributes {
     struct ContentState: Codable, Hashable {
         var viewers: Int?
         var behindLive: Int        // seconds behind the live edge
         var isPlaying: Bool
+        var isLive: Bool = true
+        var position: Double = 0   // seconds (videos)
+        var duration: Double = 0
+        var updatedAt: Date = Date()
     }
     var title: String
     var channel: String
+    var audioOnly: Bool = false
+}
+#endif
+
+// MARK: - Buttons on the Live Activity (run inside the app)
+
+/// What a Live Activity button asks the player to do. The app installs `handler` at launch;
+/// in the widget process it's nil and the buttons do nothing there (iOS runs them in the app).
+enum PlayerCommandBridge {
+    enum Command { case skip(Double), togglePlay, goLive }
+    @MainActor static var handler: ((Command) -> Void)?
+}
+
+#if canImport(AppIntents)
+import AppIntents
+
+@available(iOS 17.0, *)
+struct SkipIntent: LiveActivityIntent {
+    static var title: LocalizedStringResource = "Skip"
+    @Parameter(title: "Seconds") var seconds: Double
+    init() { seconds = 10 }
+    init(seconds: Double) { self.seconds = seconds }
+    @MainActor func perform() async throws -> some IntentResult {
+        PlayerCommandBridge.handler?(.skip(seconds))
+        return .result()
+    }
+}
+
+@available(iOS 17.0, *)
+struct TogglePlayIntent: LiveActivityIntent {
+    static var title: LocalizedStringResource = "Play or pause"
+    init() {}
+    @MainActor func perform() async throws -> some IntentResult {
+        PlayerCommandBridge.handler?(.togglePlay)
+        return .result()
+    }
+}
+
+@available(iOS 17.0, *)
+struct GoLiveIntent: LiveActivityIntent {
+    static var title: LocalizedStringResource = "Jump to live"
+    init() {}
+    @MainActor func perform() async throws -> some IntentResult {
+        PlayerCommandBridge.handler?(.goLive)
+        return .result()
+    }
 }
 #endif

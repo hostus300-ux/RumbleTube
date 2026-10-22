@@ -13,7 +13,7 @@ enum AppTab: String, Codable, CaseIterable, Identifiable {
         case .shorts: return "Shorts"
         case .discover: return "Discover"
         case .myFeed: return "My Feed"
-        case .account: return "Account"
+        case .account: return "Me"
         }
     }
     var icon: String {
@@ -128,14 +128,25 @@ struct AppPreferences: Codable, Equatable {
     var autoplayShorts = true
     /// iOS 26 Liquid Glass on the app's own controls (header, chips, mini player).
     var liquidGlass = true
-    /// "+" (upload / go live) button in the page header.
-    var showCreateButton = true
+    /// "+" (upload / go live) button in the page header. Off unless turned on in Settings.
+    var showCreateButton = false
     /// Highest quality to save when downloading.
     var downloadHeight = 720
     /// Notify when channels you follow go live.
     var liveAlerts = false
     /// Play with the lowest-bitrate stream and show artwork instead of video.
     var audioOnly = false
+    /// When off (default), Audio only applies to the current video only.
+    var audioOnlySticky = false
+    /// Play the next recommended video when one ends (with a countdown to cancel).
+    var autoplay = true
+    /// Tab bar shrinks while scrolling (iOS 26).
+    var minimizeTabBar = true
+    /// Landing view for each tab.
+    var homeFilter = "All"
+    var discoverPage = "Videos"
+    var discoverSort = "Trending"
+    var myFeedPill = "all"
 
     static let seekChoices = [5, 10, 15, 30]
     static let rateChoices: [Double] = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0]
@@ -160,6 +171,13 @@ struct AppPreferences: Codable, Equatable {
     }
 
     init() {}
+
+    enum CodingKeys: String, CodingKey {
+        case tabs, theme, accent, gestures, seekSeconds, boostRate, defaultRate, rotateToFullscreen
+        case shortsMutedWhenOtherAudio, autoplayShorts, liquidGlass, downloadHeight, liveAlerts
+        case audioOnly, audioOnlySticky, autoplay, minimizeTabBar, homeFilter, discoverPage, discoverSort, myFeedPill
+        case showCreateButton = "createButtonOn"   // renamed so the old default (on) is not carried over
+    }
 
     // Tolerant decoding: settings added in later versions fall back to defaults.
     init(from decoder: Decoder) throws {
@@ -186,6 +204,13 @@ struct AppPreferences: Codable, Equatable {
         downloadHeight = (try? c.decodeIfPresent(Int.self, forKey: .downloadHeight)) ?? d.downloadHeight
         liveAlerts = (try? c.decodeIfPresent(Bool.self, forKey: .liveAlerts)) ?? d.liveAlerts
         audioOnly = (try? c.decodeIfPresent(Bool.self, forKey: .audioOnly)) ?? d.audioOnly
+        audioOnlySticky = (try? c.decodeIfPresent(Bool.self, forKey: .audioOnlySticky)) ?? d.audioOnlySticky
+        autoplay = (try? c.decodeIfPresent(Bool.self, forKey: .autoplay)) ?? d.autoplay
+        minimizeTabBar = (try? c.decodeIfPresent(Bool.self, forKey: .minimizeTabBar)) ?? d.minimizeTabBar
+        homeFilter = (try? c.decodeIfPresent(String.self, forKey: .homeFilter)) ?? d.homeFilter
+        discoverPage = (try? c.decodeIfPresent(String.self, forKey: .discoverPage)) ?? d.discoverPage
+        discoverSort = (try? c.decodeIfPresent(String.self, forKey: .discoverSort)) ?? d.discoverSort
+        myFeedPill = (try? c.decodeIfPresent(String.self, forKey: .myFeedPill)) ?? d.myFeedPill
     }
 }
 

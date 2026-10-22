@@ -511,3 +511,38 @@ final class SearchSuggestTests: XCTestCase {
         XCTAssertEqual(SearchSuggest.items(for: "", history: lib.searchHistory, channels: chans), [.recent("Timcast"), .recent("crowder")])
     }
 }
+
+final class HistoryMergeTests: XCTestCase {
+    func item(_ id: String, progress: Double? = nil) -> VideoItem {
+        var v = VideoItem(id: id, url: "https://rumble.com/\(id)", title: id, thumbnail: nil, duration: "10:00", channelName: nil,
+                          channelPath: nil, channelAvatar: nil, views: nil, published: nil, publishedText: nil, live: false, upcoming: false)
+        v.progress = progress
+        return v
+    }
+
+    func testMergeKeepsOrderAndProgress() {
+        var lib = LibraryData()
+        let now = Date()
+        lib.history = [HistoryEntry(video: item("local1"), watchedAt: now.addingTimeInterval(-60)),
+                       HistoryEntry(video: item("b"), watchedAt: now.addingTimeInterval(-3600))]
+        lib.positions["b"] = 30
+        lib.mergeRemoteHistory([item("a", progress: 100), item("b", progress: 20), item("c", progress: 600)], now: now)
+        XCTAssertEqual(lib.history.map(\.id), ["a", "local1", "b", "c"])
+        XCTAssertEqual(lib.positions["a"], 100)
+        XCTAssertEqual(lib.positions["b"], 30, "keeps the further position")
+        XCTAssertEqual(lib.watchFraction(for: item("c")), 1, "finished videos count as watched")
+    }
+
+    func testWatchedPercentageOnCards() throws {
+        let html = """
+        <div class="videostream videostream__list-item" data-video-id="1"><div class="thumbnail__thumb">
+        <img class="thumbnail__image" src="https://x/t.jpg"><div class="videostream__info"><div class="videostream__badge videostream__status videostream__status--duration"> 10:00 </div></div>
+        <div class="videostream__watched" style="--watched-percentage: 60.1%"></div>
+        <a class="videostream__link link" href="/v7abc12-some-video.html?playlist_id=watch-history"></a></div>
+        <div class="videostream__footer"><a class="title__link link" href="/v7abc12-some-video.html"><h3 class="thumbnail__title" title="Some video">Some video</h3></a></div></div>
+        """
+        let page = try ListingParser.parse(html, url: URL(string: "https://rumble.com/playlists/watch-history")!)
+        XCTAssertEqual(page.items.first?.id, "v7abc12")
+        XCTAssertEqual(page.items.first?.progress ?? 0, 360.6, accuracy: 0.5)
+    }
+}

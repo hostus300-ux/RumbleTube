@@ -100,7 +100,7 @@ struct Thumbnail: View {
                     GeometryReader { g in
                         ZStack(alignment: .leading) {
                             Rectangle().fill(Color.white.opacity(0.35))
-                            Rectangle().fill(Color.red).frame(width: g.size.width * min(1, p))
+                            Rectangle().fill(Color.rumbleGreen).frame(width: g.size.width * min(1, p))
                         }
                         .frame(height: 4)
                         .frame(maxHeight: .infinity, alignment: .bottom)

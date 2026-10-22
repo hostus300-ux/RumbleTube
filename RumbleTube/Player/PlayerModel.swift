@@ -76,9 +76,11 @@ final class PlayerModel: ObservableObject {
                 // Native controls (or PiP) started playback: make sure we hold the audio for background play.
                 if status == .playing, !AppAudio.ownsAudio, self.player.currentItem != nil { AppAudio.takeOver() }
                 self.updateNowPlaying()
+                if self.isLive || self.audioOnly { self.updateLiveActivity() }
             }
             .store(in: &cancellables)
         setupRemoteCommands()
+        PlayerCommandBridge.handler = { [weak self] c in self?.handle(c) }
         NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)
             .sink { [weak self] _ in Task { @MainActor in self?.savePosition() } }
             .store(in: &cancellables)
@@ -100,6 +102,9 @@ final class PlayerModel: ObservableObject {
             return
         }
         savePosition()
+        cancelAutoplay(release: false)
+        if !library.data.prefs.audioOnlySticky { audioOnlyThisVideo = false }
+        upNext = nil; more = []
         item = newItem
         detail = nil; error = nil; loading = true; expanded = true; stream = nil
         currentTime = 0; duration = 0; artwork = nil; chapters = []
@@ -114,6 +119,7 @@ final class PlayerModel: ObservableObject {
             // Downloaded: play the saved file, no network needed.
             if let rec = DownloadManager.shared.record(newItem.id) {
                 self.detail = rec.detail
+                self.loadQueue(rec.detail)
                 self.chapters = Timestamps.chapters(in: rec.detail.description ?? "", duration: rec.detail.duration)
                 self.library.data.recordWatch(rec.item)
                 let local = StreamOption(kind: .mp4, height: nil, bitrate: nil, url: DownloadManager.shared.fileURL(rec).absoluteString)
@@ -128,9 +134,8 @@ final class PlayerModel: ObservableObject {
                 let d = try await RumbleService.shared.detail(for: newItem)
                 guard !Task.isCancelled, self.item?.id == newItem.id else { return }
                 self.detail = d
-                if d.liveStatus != .isLive {
-                    WidgetBridge.liveActivity(title: nil, channel: nil, viewers: nil, behindLive: 0, playing: false, active: false)
-                }
+                self.updateLiveActivity()
+                self.loadQueue(d)
                 self.chapters = Timestamps.chapters(in: d.description ?? "", duration: d.duration)
                 var hist = newItem.title == "Loading…" ? d.asItem : newItem
                 if hist.thumbnail == nil { hist.thumbnail = d.thumbnail }
@@ -165,7 +170,8 @@ final class PlayerModel: ObservableObject {
     }
 
     func close() {
-        WidgetBridge.liveActivity(title: nil, channel: nil, viewers: nil, behindLive: 0, playing: false, active: false)
+        WidgetBridge.activity(nil)
+        cancelAutoplay(release: false)
         savePosition()
         loadTask?.cancel()
         player.pause()
@@ -193,11 +199,14 @@ final class PlayerModel: ObservableObject {
 
     // MARK: - Streams
 
-    var audioOnly: Bool { library.data.prefs.audioOnly }
+    /// Audio only for just this video (when "carry over" is off in Settings).
+    @Published private var audioOnlyThisVideo = false
+    var audioOnly: Bool { library.data.prefs.audioOnlySticky ? library.data.prefs.audioOnly : audioOnlyThisVideo }
 
     /// Audio-only: smallest stream / lowest HLS variant and no picture; switch back restores quality.
     func setAudioOnly(_ on: Bool) {
-        library.data.prefs.audioOnly = on
+        if library.data.prefs.audioOnlySticky { library.data.prefs.audioOnly = on } else { audioOnlyThisVideo = on }
+        defer { updateLiveActivity() }
         if let pi = player.currentItem { pi.preferredPeakBitRate = on ? 1 : 0 }
         if let d = detail, stream?.kind == .mp4, !(stream?.url.hasPrefix("file:") ?? false),
            let s = preferredStream(for: d), s != stream {
@@ -257,8 +266,7 @@ final class PlayerModel: ObservableObject {
         NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime, object: pi)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
-                self?.savePosition()
-                AppAudio.release()   // finished: let the user's other audio resume
+                self?.videoEnded()   // autoplay countdown, or release audio so other apps resume
             }
             .store(in: &itemObservers)
         rate = library.data.prefs.defaultRate
@@ -376,16 +384,90 @@ final class PlayerModel: ObservableObject {
         updateLiveWindow()
         checkSkip()
         if abs(t - lastSaved) > 5 { lastSaved = t; savePosition() }
-        if isLive, Date().timeIntervalSince(lastActivityUpdate) > 15 { updateLiveActivity() }
+        if (isLive || audioOnly), Date().timeIntervalSince(lastActivityUpdate) > 15 { updateLiveActivity() }
     }
 
     private var lastActivityUpdate = Date.distantPast
 
-    /// Lock Screen / Dynamic Island card while a live stream plays.
+    /// Lock Screen / Dynamic Island card while a live stream or an audio-only video plays.
     func updateLiveActivity() {
         lastActivityUpdate = Date()
-        WidgetBridge.liveActivity(title: detail?.title ?? item?.title, channel: detail?.channel?.name ?? item?.channelName,
-                                  viewers: item?.watching, behindLive: behindLive, playing: isPlaying, active: isLive && item != nil)
+        guard item != nil, isLive || audioOnly else { WidgetBridge.activity(nil); return }
+        WidgetBridge.activity(.init(title: detail?.title ?? item?.title, channel: detail?.channel?.name ?? item?.channelName,
+                                    viewers: item?.watching, behindLive: behindLive, playing: isPlaying, isLive: isLive,
+                                    audioOnly: audioOnly, position: currentTime, duration: duration))
+    }
+
+    /// Buttons on the Live Activity.
+    func handle(_ c: PlayerCommandBridge.Command) {
+        switch c {
+        case .skip(let s): seek(by: s)
+        case .togglePlay: togglePlay()
+        case .goLive: goLive()
+        }
+        Task { try? await Task.sleep(nanoseconds: 400_000_000); self.updateLiveActivity() }
+    }
+
+    // MARK: - Autoplay
+
+    /// The next video (first unwatched recommendation), shown in the player and played at the end when autoplay is on.
+    @Published var upNext: VideoItem?
+    /// More from this video's channel (the recommendation queue).
+    @Published private(set) var more: [VideoItem] = []
+
+    private func loadQueue(_ d: VideoDetail) {
+        guard let path = d.channel?.path else { more = []; upNext = nil; return }
+        let id = d.id
+        Task {
+            guard let page = try? await RumbleService.shared.channel(path), self.item?.id == id else { return }
+            self.more = page.items
+            self.setQueue(page.items)
+        }
+    }
+    /// Seconds left before autoplay starts the next video; nil when no countdown is running.
+    @Published private(set) var autoplayCountdown: Int?
+    private var autoplayTask: Task<Void, Never>?
+    var autoplayOn: Bool { library.data.prefs.autoplay }
+
+    func setAutoplay(_ on: Bool) {
+        library.data.prefs.autoplay = on
+        if !on { cancelAutoplay() }
+        objectWillChange.send()
+    }
+
+    func setQueue(_ more: [VideoItem]) {
+        let lib = library.data
+        upNext = more.first { $0.id != item?.id && !$0.isLive && $0.isShort != true && (lib.watchFraction(for: $0) ?? 0) < 0.9 }
+    }
+
+    private func videoEnded() {
+        savePosition()
+        guard autoplayOn, !isLive, let next = upNext, next.id != item?.id else { AppAudio.release(); return }
+        autoplayTask?.cancel()
+        autoplayCountdown = 8
+        autoplayTask = Task { [weak self] in
+            while let n = self?.autoplayCountdown, n > 0 {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard !Task.isCancelled else { return }
+                self?.autoplayCountdown = n - 1
+            }
+            guard !Task.isCancelled else { return }
+            self?.playUpNext()
+        }
+    }
+
+    func cancelAutoplay(release: Bool = true) {
+        autoplayTask?.cancel(); autoplayTask = nil
+        if autoplayCountdown != nil { autoplayCountdown = nil; if release { AppAudio.release() } }
+    }
+
+    func playUpNext() {
+        autoplayTask?.cancel(); autoplayTask = nil
+        autoplayCountdown = nil
+        guard let next = upNext else { return }
+        let wasExpanded = expanded
+        play(next)
+        if !wasExpanded { expanded = false }      // keep it in the mini player if that's where you were
     }
 
     private func checkSkip() {

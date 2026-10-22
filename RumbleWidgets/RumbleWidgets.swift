@@ -135,7 +135,7 @@ struct ContinueWatchingView: View {
                     }
                     .frame(maxWidth: .infinity).aspectRatio(16 / 9, contentMode: .fit).clipped()
                     GeometryReader { g in
-                        Rectangle().fill(.red).frame(width: g.size.width * v.progress, height: 3)
+                        Rectangle().fill(green).frame(width: g.size.width * v.progress, height: 3)
                             .frame(maxHeight: .infinity, alignment: .bottom)
                     }
                 }
@@ -157,56 +157,113 @@ struct ContinueWatchingWidget: Widget {
 
 // MARK: - Live Activity (Lock Screen + Dynamic Island)
 
+private let accent = green
+
+@available(iOS 16.1, *)
+private struct ActivityProgress: View {
+    let state: LiveStreamAttributes.ContentState
+    var body: some View {
+        if state.isLive {
+            HStack(spacing: 5) {
+                Circle().fill(state.behindLive < 20 ? Color.red : Color.gray).frame(width: 7, height: 7)
+                Text(state.behindLive < 20 ? "LIVE" : "-\(clock(state.behindLive))").font(.caption2.weight(.heavy)).monospacedDigit()
+                if let v = state.viewers { Text("· \(short(v)) watching").font(.caption2).foregroundStyle(.secondary) }
+            }
+        } else if state.duration > 0 {
+            // Animates on its own between updates while playing.
+            let start = state.updatedAt.addingTimeInterval(-state.position)
+            let end = start.addingTimeInterval(state.duration)
+            if state.isPlaying, end > Date() {
+                ProgressView(timerInterval: start...end, countsDown: false) { EmptyView() } currentValueLabel: { EmptyView() }
+                    .tint(accent)
+            } else {
+                ProgressView(value: min(1, state.position / state.duration)).tint(accent)
+            }
+        }
+    }
+}
+
+@available(iOS 16.1, *)
+private struct ActivityButtons: View {
+    let state: LiveStreamAttributes.ContentState
+    var size: CGFloat = 20
+    var body: some View {
+        if #available(iOS 17.0, *) {
+            HStack(spacing: 22) {
+                Button(intent: SkipIntent(seconds: -10)) { Image(systemName: "gobackward.10").font(.system(size: size, weight: .semibold)) }
+                Button(intent: TogglePlayIntent()) {
+                    Image(systemName: state.isPlaying ? "pause.fill" : "play.fill").font(.system(size: size + 4, weight: .bold))
+                }
+                if state.isLive && state.behindLive >= 20 {
+                    Button(intent: GoLiveIntent()) { Image(systemName: "dot.radiowaves.left.and.right").font(.system(size: size, weight: .semibold)) }
+                } else {
+                    Button(intent: SkipIntent(seconds: 10)) { Image(systemName: "goforward.10").font(.system(size: size, weight: .semibold)) }
+                }
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.white)
+        } else {
+            Image(systemName: state.isPlaying ? "play.fill" : "pause.fill").font(.title3)
+        }
+    }
+}
+
+private func clock(_ s: Int) -> String {
+    s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60) : String(format: "%d:%02d", s / 60, s % 60)
+}
+
 @available(iOS 16.1, *)
 struct LiveStreamActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: LiveStreamAttributes.self) { ctx in
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 5) {
-                        Circle().fill(ctx.state.behindLive < 20 ? Color.red : Color.gray).frame(width: 8, height: 8)
-                        Text(ctx.state.behindLive < 20 ? "LIVE" : "-\(clock(ctx.state.behindLive))")
-                            .font(.caption.weight(.heavy)).monospacedDigit()
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: ctx.attributes.audioOnly ? "waveform" : "dot.radiowaves.left.and.right")
+                        .font(.title3.weight(.semibold)).foregroundStyle(accent)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(ctx.attributes.title).font(.subheadline.weight(.semibold)).lineLimit(2)
                         Text(ctx.attributes.channel).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
-                    Text(ctx.attributes.title).font(.subheadline.weight(.semibold)).lineLimit(2)
+                    Spacer(minLength: 0)
                 }
-                Spacer()
-                VStack(spacing: 2) {
-                    Image(systemName: ctx.state.isPlaying ? "play.fill" : "pause.fill").font(.title3)
-                    if let v = ctx.state.viewers { Text(short(v)).font(.caption2.monospacedDigit()).foregroundStyle(.secondary) }
-                }
+                ActivityProgress(state: ctx.state)
+                ActivityButtons(state: ctx.state).frame(maxWidth: .infinity)
             }
             .padding(14)
-            .activityBackgroundTint(Color.black.opacity(0.6))
+            .activityBackgroundTint(Color.black.opacity(0.65))
+            .activitySystemActionForegroundColor(.white)
         } dynamicIsland: { ctx in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    Label(ctx.state.behindLive < 20 ? "LIVE" : "-\(clock(ctx.state.behindLive))", systemImage: "dot.radiowaves.left.and.right")
-                        .font(.caption.weight(.bold)).foregroundStyle(.red)
+                    Image(systemName: ctx.attributes.audioOnly ? "waveform" : "dot.radiowaves.left.and.right")
+                        .foregroundStyle(ctx.state.isLive ? .red : accent).padding(.leading, 4)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    if let v = ctx.state.viewers { Label(short(v), systemImage: "eye").font(.caption) }
+                    if let v = ctx.state.viewers, ctx.state.isLive { Label(short(v), systemImage: "eye").font(.caption) }
+                }
+                DynamicIslandExpandedRegion(.center) {
+                    Text(ctx.attributes.title).font(.caption.weight(.semibold)).lineLimit(1)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(ctx.attributes.title).font(.subheadline.weight(.semibold)).lineLimit(1)
-                        Text(ctx.attributes.channel).font(.caption).foregroundStyle(.secondary)
+                    VStack(spacing: 8) {
+                        ActivityProgress(state: ctx.state)
+                        ActivityButtons(state: ctx.state, size: 22)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 8)
                 }
             } compactLeading: {
-                Circle().fill(.red).frame(width: 8, height: 8)
+                Image(systemName: ctx.attributes.audioOnly ? "waveform" : "circle.fill")
+                    .foregroundStyle(ctx.state.isLive ? .red : accent).font(.caption2)
             } compactTrailing: {
-                Text(ctx.state.viewers.map(short) ?? "LIVE").font(.caption2.monospacedDigit())
+                if ctx.state.isLive {
+                    Text(ctx.state.viewers.map(short) ?? "LIVE").font(.caption2.monospacedDigit())
+                } else {
+                    Image(systemName: ctx.state.isPlaying ? "pause.fill" : "play.fill").font(.caption2)
+                }
             } minimal: {
-                Circle().fill(.red).frame(width: 8, height: 8)
+                Image(systemName: ctx.attributes.audioOnly ? "waveform" : "circle.fill").foregroundStyle(accent).font(.caption2)
             }
         }
-    }
-
-    private func clock(_ s: Int) -> String {
-        s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60) : String(format: "%d:%02d", s / 60, s % 60)
     }
 }
 

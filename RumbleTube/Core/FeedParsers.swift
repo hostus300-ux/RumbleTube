@@ -190,6 +190,14 @@ enum ListingParser {
                              published: try time?.attr("datetime"), publishedText: try time?.text(),
                              live: liveBadge, upcoming: upcoming)
         item.viewCount = viewCount ?? views.flatMap { CountFormat.parse($0) }
+        // Watch history cards: <div class="videostream__watched" style="--watched-percentage: 60.1%">
+        if let w = try c.select(".videostream__watched").first(),
+           let style = try? w.attr("style"),
+           let r = style.range(of: #"--watched-percentage:\s*([\d.]+)%"#, options: .regularExpression),
+           let pct = style[r].components(separatedBy: CharacterSet(charactersIn: ": %")).compactMap(Double.init).last,
+           pct > 0, let d = duration.flatMap(TimeFormat.parseClock) {
+            item.progress = d * min(pct, 100) / 100
+        }
         item.watching = watching
         if let vid = try? c.attr("data-video-id"), !vid.isEmpty { item.numericID = vid }
         return item

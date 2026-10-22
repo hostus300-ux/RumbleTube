@@ -1,6 +1,6 @@
 # RumbleTube
 
-[**⬇︎ Download the latest IPA**](https://github.com/hostus300-ux/RumbleTube/releases/download/latest/RumbleTube.ipa) · current version 0.9.3
+[**⬇︎ Download the latest IPA**](https://github.com/hostus300-ux/RumbleTube/releases/download/latest/RumbleTube.ipa) · current version 0.10.0
 
 An unofficial iPhone client for Rumble that works like the YouTube app, with **RumbleSkip** (SponsorBlock-style skipping) built in. On your home screen it shows up as **Rumble**.
 
@@ -17,7 +17,7 @@ An unofficial iPhone client for Rumble that works like the YouTube app, with **R
   - Your Rumble subscriptions, with channel circles at the top. A red ring means the channel is live (tap to join the stream); a green ring means a recent upload.
   - Filters: All / Today / Live / Videos / Continue Watching.
   - A separate Shorts view for shorts from creators you follow.
-- **Account:** profile, Your Videos, Following (live channels marked), Earnings, Watch History, Watch Later, Settings and Sign Out.
+- **Me:** your profile picture is the tab icon. Profile, Your Videos, Following (live channels marked), Earnings, Watch History, Watch Later, Settings and Sign Out.
 
 **Everywhere**
 - **+**, search and the notification bell sit in the top-right, on the same line as the page title.
@@ -59,7 +59,11 @@ An unofficial iPhone client for Rumble that works like the YouTube app, with **R
 - **Downloads:** save videos as MP4 to watch offline. Use the Download button under a video, or long-press any video. You can manage them, and pick the quality, in Account → Downloads.
 - **Went-live alerts:** get notified when a channel you follow goes live. Turn it on in Settings → Rumble account.
 - **Timestamps:** tap times like 12:34 in descriptions and comments to jump there. When a description lists 3 or more timestamped lines, they become chapters, with marks on the progress bar and the current chapter name shown.
-- **Audio only:** plays the lowest-quality video stream and shows the artwork instead of the picture, to save data. Use the button under the video or turn it on in Settings.
+- **Audio only:** no video is drawn and picture-in-picture is off. You get artwork plus a Lock Screen / Dynamic Island card with ±10 s and play/pause buttons. It applies to the current video only, unless you turn on "carries over" in Settings.
+- **Autoplay:** when a video ends, the next recommendation plays after an 8-second countdown with Cancel and Play now. "Up next" is always shown under the video. Toggle it there or in Settings.
+- **Comments** are a tab inside the player (Details · Comments, plus Live chat on streams).
+- **Start pages:** in Settings, choose what Home, Discover and My Feed open on.
+- **Watch history** is a single list, synced from your Rumble Watch History and Continue Watching, including how far you got in each video.
 - **Widgets:** "Live now" from channels you follow, and "Continue watching". While you watch a live stream, a Lock Screen and Dynamic Island card shows the viewer count and how far behind live you are.
 - **Search history and suggestions,** including matching channels you follow.
 - **iPad:** a grid layout, with the video and live chat side by side.

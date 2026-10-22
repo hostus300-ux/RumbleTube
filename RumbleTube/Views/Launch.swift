@@ -28,7 +28,11 @@ final class LaunchGate: ObservableObject {
         // Warm My Feed's circles in the background so the tab is ready when you get there.
         Task {
             if !AccountStore.shared.loggedIn { await AccountStore.shared.refreshStatus() }
-            if AccountStore.shared.loggedIn { await MyFeedModel.shared.refreshChannels() }
+            if AccountStore.shared.loggedIn {
+                await MyFeedModel.shared.refreshChannels()
+                await AccountStore.shared.loadProfile()          // profile picture for the "Me" tab
+                await WatchHistorySync.shared.sync()
+            }
         }
     }
 }

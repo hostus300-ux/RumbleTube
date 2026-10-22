@@ -309,9 +309,12 @@ struct CommentsScreen: View {
     @State private var confirmDelete: RumbleComment?
     @FocusState private var composerFocused: Bool
     @Environment(\.dismiss) private var dismissComments
+    /// Shown inside the player (no video header, timestamp taps just seek).
+    var inline = false
 
-    init(target: CommentTarget) {
+    init(target: CommentTarget, inline: Bool = false) {
         self.target = target
+        self.inline = inline
         _model = StateObject(wrappedValue: CommentsModel(target: target))
     }
 
@@ -321,7 +324,7 @@ struct CommentsScreen: View {
     var body: some View {
         ScrollViewReader { proxy in
             List {
-                videoHeader
+                if !inline { videoHeader }
                 if let e = model.error {
                     Section { Text(e).foregroundStyle(.secondary); Button("Try again") { Task { await model.load() } } }
                 }
@@ -376,7 +379,7 @@ struct CommentsScreen: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) { composer }
         .navigationTitle("Comments")
-        .seekLinks(for: target.video, player: player, onSeek: { dismissComments() })
+        .seekLinks(for: target.video, player: player, onSeek: { if !inline { dismissComments() } })
         .navigationBarTitleDisplayMode(.inline)
         .overlay(alignment: .top) {
             if let t = toast {

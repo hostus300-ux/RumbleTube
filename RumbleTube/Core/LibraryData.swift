@@ -47,6 +47,25 @@ struct LibraryData: Codable, Equatable {
         searchHistory = (try? c.decodeIfPresent([String].self, forKey: .searchHistory)) ?? []
     }
 
+    /// Merges Rumble's watch history (most recent first, no dates) into ours: videos we already have keep their
+    /// date; new ones are slotted in Rumble's order just after the video that precedes them. Resume positions
+    /// take whichever is further along.
+    mutating func mergeRemoteHistory(_ remote: [VideoItem], now: Date = Date()) {
+        var byID = Dictionary(history.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        var anchor = now
+        for v in remote where v.isShort != true {
+            if let existing = byID[v.id] {
+                anchor = existing.watchedAt
+            } else {
+                anchor = anchor.addingTimeInterval(-1)
+                byID[v.id] = HistoryEntry(video: v, watchedAt: anchor)
+            }
+            if let p = v.progress, p > (positions[v.id] ?? 0) { positions[v.id] = p }
+        }
+        history = byID.values.sorted { $0.watchedAt > $1.watchedAt }
+        if history.count > Self.historyLimit { history.removeLast(history.count - Self.historyLimit) }
+    }
+
     /// Most recent first, no duplicates (case-insensitive), at most 30.
     mutating func addSearch(_ q: String) {
         let t = q.trimmingCharacters(in: .whitespacesAndNewlines)

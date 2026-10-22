@@ -124,7 +124,25 @@ struct SettingsView: View {
             AccountSettingsSection()
 
             Section {
+                Picker("Home opens on", selection: pref(\.homeFilter)) {
+                    ForEach(ContentFilter.allCases) { Text($0.rawValue).tag($0.rawValue) }
+                }
+                Picker("Discover opens on", selection: pref(\.discoverPage)) {
+                    ForEach(DiscoverModel.Page.allCases) { Text($0.rawValue).tag($0.rawValue) }
+                }
+                Picker("Discover sorted by", selection: pref(\.discoverSort)) {
+                    ForEach(DiscoverModel.Sort.allCases) { Text($0.rawValue).tag($0.rawValue) }
+                }
+                Picker("My Feed opens on", selection: pref(\.myFeedPill)) {
+                    ForEach(MyFeedPill.allCases) { Text($0.title).tag($0.rawValue) }
+                }
+            } header: { Text("Start pages") } footer: {
+                Text("Which filter each tab shows when it opens.")
+            }
+
+            Section {
                 Toggle("Show + (upload / go live) button", isOn: pref(\.showCreateButton))
+                Toggle("Shrink tab bar while scrolling", isOn: pref(\.minimizeTabBar))
                 Toggle("Liquid Glass", isOn: pref(\.liquidGlass))
                     .disabled(!GlassUI.available)
             } header: { Text("Look") } footer: {
@@ -165,8 +183,15 @@ struct SettingsView: View {
                     ForEach(qualities.indices, id: \.self) { i in Text(qualities[i].0).tag(qualities[i].1 ?? 0) }
                 }
                 Toggle("Rotate phone for fullscreen", isOn: pref(\.rotateToFullscreen))
-                Toggle("Audio only (saves data)", isOn: Binding(get: { library.data.prefs.audioOnly },
-                                                               set: { PlayerModel.shared.setAudioOnly($0) }))
+                Toggle("Autoplay next video", isOn: Binding(get: { library.data.prefs.autoplay },
+                                                           set: { PlayerModel.shared.setAutoplay($0) }))
+                Toggle("Audio only carries over to next videos", isOn: Binding(
+                    get: { library.data.prefs.audioOnlySticky },
+                    set: { on in
+                        let current = PlayerModel.shared.audioOnly
+                        library.data.prefs.audioOnlySticky = on
+                        library.data.prefs.audioOnly = on && current
+                    }))
             } header: { Text("Player") }
 
             if library.data.prefs.visibleTabs.contains(.shorts) {

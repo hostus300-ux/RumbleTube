@@ -90,9 +90,9 @@ extension View {
     }
 
     /// iOS 26: tab bar shrinks while scrolling down, like Apple Music / App Store.
-    @ViewBuilder func minimizingTabBar() -> some View {
+    @ViewBuilder func minimizingTabBar(_ on: Bool = true) -> some View {
         #if compiler(>=6.2)
-        if #available(iOS 26.0, *) { self.tabBarMinimizeBehavior(.onScrollDown) } else { self }
+        if #available(iOS 26.0, *) { self.tabBarMinimizeBehavior(on ? .onScrollDown : .never) } else { self }
         #else
         self
         #endif

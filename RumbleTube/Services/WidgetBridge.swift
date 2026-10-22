@@ -56,24 +56,32 @@ enum WidgetBridge {
     private static var activityID: String?
     #endif
 
-    static func liveActivity(title: String?, channel: String?, viewers: Int?, behindLive: Double, playing: Bool, active: Bool) {
+    struct ActivityInfo {
+        var title: String?, channel: String?, viewers: Int?, behindLive: Double, playing: Bool
+        var isLive: Bool, audioOnly: Bool, position: Double, duration: Double
+    }
+
+    /// Starts, updates or ends the Lock Screen / Dynamic Island card. `info == nil` ends it.
+    static func activity(_ info: ActivityInfo?) {
         #if canImport(ActivityKit)
         guard #available(iOS 16.2, *) else { return }
-        let state = LiveStreamAttributes.ContentState(viewers: viewers, behindLive: Int(behindLive), isPlaying: playing)
         let current = Activity<LiveStreamAttributes>.activities.first { $0.id == activityID }
-        if !active {
-            if let current { Task { await current.end(nil, dismissalPolicy: .immediate) } }
+        guard let info else {
+            for a in Activity<LiveStreamAttributes>.activities { Task { await a.end(nil, dismissalPolicy: .immediate) } }
             activityID = nil
             return
         }
-        if let current, current.attributes.title == (title ?? "") {
-            Task { await current.update(ActivityContent(state: state, staleDate: Date().addingTimeInterval(120))) }
+        let state = LiveStreamAttributes.ContentState(viewers: info.viewers, behindLive: Int(info.behindLive), isPlaying: info.playing,
+                                                      isLive: info.isLive, position: info.position, duration: info.duration,
+                                                      updatedAt: Date())
+        let content = ActivityContent(state: state, staleDate: Date().addingTimeInterval(info.isLive ? 120 : max(120, info.duration)))
+        if let current, current.attributes.title == (info.title ?? ""), current.attributes.audioOnly == info.audioOnly {
+            Task { await current.update(content) }
         } else {
             if let current { Task { await current.end(nil, dismissalPolicy: .immediate) } }
             guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
-            let attrs = LiveStreamAttributes(title: title ?? "Live stream", channel: channel ?? "")
-            activityID = try? Activity.request(attributes: attrs,
-                                               content: ActivityContent(state: state, staleDate: Date().addingTimeInterval(120))).id
+            let attrs = LiveStreamAttributes(title: info.title ?? "Rumble", channel: info.channel ?? "", audioOnly: info.audioOnly)
+            activityID = try? Activity.request(attributes: attrs, content: content).id
         }
         #endif
     }

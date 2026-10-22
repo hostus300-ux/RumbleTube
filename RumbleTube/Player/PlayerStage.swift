@@ -56,6 +56,17 @@ struct PlayerSurface: UIViewRepresentable {
         if !context.coordinator.backgrounded, v.playerLayer.player !== player { v.playerLayer.player = player }
     }
 
+    /// When the full player closes (mini player), let go of the layer: an off-screen layer still attached to the
+    /// player makes iOS pause the video when the phone locks.
+    static func dismantleUIView(_ v: PlayerLayerView, coordinator: Coordinator) {
+        if !coordinator.pipActive {
+            v.playerLayer.player = nil
+            Task { @MainActor in
+                if PlayerModel.shared.pip?.playerLayer === v.playerLayer { PlayerModel.shared.pip = nil }
+            }
+        }
+    }
+
     /// Detach while backgrounded so audio keeps playing (unless PiP is showing).
     final class Coordinator: NSObject, AVPictureInPictureControllerDelegate {
         weak var view: PlayerLayerView?
@@ -123,11 +134,11 @@ struct PlayerStage: View {
     var body: some View {
         ZStack {
             Color.black
-            if player.stream != nil, player.error == nil {
+            if player.stream != nil, player.error == nil, !player.audioOnly {
+                // Audio only: no video layer at all, so nothing renders and picture-in-picture can't start.
                 PlayerSurface(player: player.player, fill: player.zoomFill, enablePiP: !isFullscreen)
-                    .opacity(player.audioOnly ? 0 : 1)
             }
-            if player.audioOnly { audioOnlyArt }
+            if player.audioOnly { audioOnlyArt.allowsHitTesting(false) }
             gestureLayer
             if let error = player.error { errorView(error) }
             else if player.loading || player.stream == nil { ProgressView().tint(.white) }
@@ -148,6 +159,16 @@ struct PlayerStage: View {
                     .frame(maxHeight: .infinity, alignment: .top).padding(.top, 10)
             }
             skipOverlays
+            if player.audioOnly && !controlsVisible {
+                Button { player.setAudioOnly(false) } label: {
+                    Label("Show video", systemImage: "play.rectangle").font(.caption.weight(.semibold))
+                        .padding(.horizontal, 12).padding(.vertical, 7)
+                }
+                .buttonStyle(.plain).foregroundStyle(.white)
+                .background(.black.opacity(0.55), in: Capsule())
+                .frame(maxHeight: .infinity, alignment: .bottom).padding(.bottom, 14)
+            }
+            if let n = player.autoplayCountdown, let next = player.upNext { autoplayCard(next, seconds: n) }
         }
         .clipped()
         .animation(.easeInOut(duration: 0.2), value: controlsVisible)
@@ -168,13 +189,35 @@ struct PlayerStage: View {
             VStack(spacing: 8) {
                 Image(systemName: "waveform").font(.system(size: 34, weight: .semibold))
                 Text("Audio only").font(.caption.weight(.bold))
-                Button("Show video") { player.setAudioOnly(false) }
-                    .font(.caption.weight(.semibold)).buttonStyle(.bordered).tint(.white)
             }
             .foregroundStyle(.white)
         }
         .clipped()
-        .allowsHitTesting(true)
+    }
+
+    /// End-of-video autoplay: shows what's next with a countdown, Cancel and Play now.
+    private func autoplayCard(_ next: VideoItem, seconds: Int) -> some View {
+        ZStack {
+            Color.black.opacity(0.72)
+            VStack(spacing: 10) {
+                Text("Up next in \(seconds)").font(.caption.weight(.bold)).foregroundStyle(.white.opacity(0.8))
+                HStack(spacing: 10) {
+                    Thumbnail(item: next).frame(width: isFullscreen ? 200 : 120).clipShape(RoundedRectangle(cornerRadius: 6))
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(next.title).font(.subheadline.weight(.semibold)).lineLimit(2)
+                        Text(next.channelName ?? "").font(.caption).foregroundStyle(.white.opacity(0.7)).lineLimit(1)
+                    }
+                    .foregroundStyle(.white)
+                }
+                .padding(.horizontal, 16)
+                HStack(spacing: 12) {
+                    Button("Cancel") { player.cancelAutoplay() }.buttonStyle(.bordered).tint(.white)
+                    Button("Play now") { player.playUpNext() }.buttonStyle(.borderedProminent).tint(.accentColor)
+                }
+                .font(.subheadline.weight(.semibold))
+            }
+        }
+        .transition(.opacity)
     }
 
     // MARK: gestures
@@ -358,7 +401,7 @@ struct PlayerStage: View {
             let f = min(1, max(0, (t - lo) / span))
             ZStack(alignment: .leading) {
                 Capsule().fill(Color.white.opacity(0.3)).frame(height: 4)
-                Capsule().fill(player.isLive ? Color.red : Color.accentColor).frame(width: g.size.width * f, height: 4)
+                Capsule().fill(Color.rumbleGreen).frame(width: g.size.width * f, height: 4)
                 if !player.isLive {
                     // chapter boundaries: small gaps in the bar
                     ForEach(player.chapters.dropFirst(), id: \.self) { c in
@@ -371,7 +414,7 @@ struct PlayerStage: View {
                             .offset(x: g.size.width * s.start / span)
                     }
                 }
-                Circle().fill(player.isLive ? Color.red : Color.accentColor)
+                Circle().fill(Color.rumbleGreen)
                     .frame(width: scrubbing == nil ? 12 : 18, height: scrubbing == nil ? 12 : 18)
                     .offset(x: g.size.width * f - (scrubbing == nil ? 6 : 9))
             }
