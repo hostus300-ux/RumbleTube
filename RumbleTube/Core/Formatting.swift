@@ -131,3 +131,8 @@ enum HTMLText {
         return out
     }
 }
+
+extension Collection {
+    /// nil instead of a crash when the index is out of range.
+    subscript(safe i: Index) -> Element? { indices.contains(i) ? self[i] : nil }
+}

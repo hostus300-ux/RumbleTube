@@ -371,15 +371,7 @@ enum ChannelSearchParser {
     static func parse(_ html: String) throws -> [ChannelResult] {
         let doc = try SwiftSoup.parse(html)
         // Avatars are CSS background images: .user-image--img--id-N { background-image: url(...) }
-        var avatars: [String: String] = [:]
-        let pattern = #"user-image--img--id-(\d+)\s*\{\s*background-image:\s*url\(([^)]+)\)"#
-        if let re = try? NSRegularExpression(pattern: pattern) {
-            let ns = html as NSString
-            for m in re.matches(in: html, range: NSRange(location: 0, length: ns.length)) {
-                avatars[ns.substring(with: m.range(at: 1))] = ns.substring(with: m.range(at: 2))
-                    .trimmingCharacters(in: CharacterSet(charactersIn: "'\" "))
-            }
-        }
+        let avatars = UserImageCSS.map(html)
         var out: [ChannelResult] = []
         var seen = Set<String>()
         for art in try doc.select("article").array() {
@@ -398,6 +390,96 @@ enum ChannelSearchParser {
                 .replacingOccurrences(of: "\u{00A0}", with: " ").trimmingCharacters(in: .whitespaces) }
             out.append(ChannelResult(ref: ChannelRef(path: path, name: name, avatar: avatar), followers: followers,
                                      verified: try !art.select(".verification-badge-icon").isEmpty()))
+        }
+        return out
+    }
+}
+
+
+/// Rumble draws avatars as CSS backgrounds: `i.user-image--img--id-<id> { background-image: url(...) }`.
+enum UserImageCSS {
+    static func map(_ html: String) -> [String: String] {
+        var avatars: [String: String] = [:]
+        let pattern = #"user-image--img--id-([0-9A-Za-z]+)\s*\{\s*background-image:\s*url\(([^)]+)\)"#
+        guard let re = try? NSRegularExpression(pattern: pattern) else { return [:] }
+        let ns = html as NSString
+        for m in re.matches(in: html, range: NSRange(location: 0, length: ns.length)) {
+            avatars[ns.substring(with: m.range(at: 1))] = ns.substring(with: m.range(at: 2))
+                .trimmingCharacters(in: CharacterSet(charactersIn: "'\" "))
+        }
+        return avatars
+    }
+
+    static func id(fromClass cls: String) -> String? {
+        cls.components(separatedBy: " ").first { $0.hasPrefix("user-image--img--id-") }.map { String($0.dropFirst("user-image--img--id-".count)) }
+    }
+}
+
+// MARK: - Browse (rumble.com/browse category tiles)
+
+struct BrowseCategory: Identifiable, Hashable {
+    var path: String          // "/category/gaming"
+    var title: String
+    var image: String?
+    var viewers: String?      // "13.1K viewers"
+    var id: String { path }
+}
+
+enum BrowseParser {
+    static func parse(_ html: String) throws -> [BrowseCategory] {
+        let doc = try SwiftSoup.parse(html)
+        var out: [BrowseCategory] = []
+        var seen = Set<String>()
+        for li in try doc.select("li.category").array() {
+            guard let a = try li.select("a[href^=/category/]").first() else { continue }
+            let path = try a.attr("href").components(separatedBy: "?")[0]
+            guard seen.insert(path).inserted else { continue }
+            let title = try li.select(".category__title").first()?.text() ?? path
+            let img = try li.select("img.category__image").first()?.attr("src")
+            let viewers = try li.select(".category__views").first()?.text()
+            out.append(BrowseCategory(path: path, title: title, image: (img?.isEmpty ?? true) ? nil : img,
+                                      viewers: (viewers?.isEmpty ?? true) ? nil : viewers))
+        }
+        return out
+    }
+}
+
+// MARK: - Featured channels (the signed-out sidebar on rumble.com)
+
+struct FeaturedChannel: Identifiable, Hashable {
+    var name: String
+    var path: String?          // "/c/Name" (nil when the entry links straight to a live stream)
+    var livePath: String?      // "/vXXXX-title.html" when the channel is live now
+    var avatar: String?
+    var viewers: String?       // "4.15K" for live entries
+    var id: String { (path ?? livePath ?? name).lowercased() }
+    var ref: ChannelRef? { path.map { ChannelRef(path: $0, name: name, avatar: avatar) } }
+}
+
+enum FeaturedChannelsParser {
+    static func parse(_ html: String) throws -> [FeaturedChannel] {
+        guard let r = html.range(of: "Featured Channels") else { return [] }
+        let avatars = UserImageCSS.map(html)
+        // Only the part of the menu after the heading (followed channels come before it when signed in).
+        let fragment = String(html[r.upperBound...].prefix(200_000))
+        let doc = try SwiftSoup.parseBodyFragment(fragment)
+        var out: [FeaturedChannel] = []
+        var seen = Set<String>()
+        for a in try doc.select("a.main-menu-item-channel").array() {
+            let href = try a.attr("href").components(separatedBy: "?")[0]
+            let title = try a.attr("title")
+            let label = try a.select(".main-menu-item-channel-label").first()?.text() ?? title
+            let name = title.isEmpty ? label : title
+            guard !name.isEmpty else { continue }
+            let isLive = try a.hasClass("main-menu-item-channel-is-live") || href.hasSuffix(".html")
+            var avatar: String?
+            if let i = try a.select("i.user-image").first(), let id = UserImageCSS.id(fromClass: try i.className()) { avatar = avatars[id] }
+            let path = RumbleURL.channelPath(from: href)
+            let viewers = isLive ? label.replacingOccurrences(of: name, with: "").trimmingCharacters(in: .whitespaces) : nil
+            let f = FeaturedChannel(name: name, path: path, livePath: href.hasSuffix(".html") ? href : nil,
+                                    avatar: avatar, viewers: (viewers?.isEmpty ?? true) ? nil : viewers)
+            guard seen.insert(f.id).inserted else { continue }
+            out.append(f)
         }
         return out
     }

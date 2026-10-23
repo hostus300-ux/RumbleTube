@@ -44,12 +44,15 @@ final class AccountStore: ObservableObject {
         guard let res = try? await send(AccountRequests.status()), res.1 == 200,
               let obj = (try? JSONSerialization.jsonObject(with: res.0)) as? [String: Any] else { return }
         let user = obj["user"] as? [String: Any]
-        loggedIn = user?["logged_in"] as? Bool ?? false
-        hasUnread = ((obj["data"] as? [String: Any])?["has_unread_notifications"] as? Bool) ?? false
+        // Only publish real changes: every publish redraws the whole app.
+        let li = user?["logged_in"] as? Bool ?? false
+        if loggedIn != li { loggedIn = li }
+        let unread = ((obj["data"] as? [String: Any])?["has_unread_notifications"] as? Bool) ?? false
+        if hasUnread != unread { hasUnread = unread }
         if loggedIn, username == nil, let r = try? await session.data(from: URL(string: "https://rumble.com/")!) {
             username = AccountRequests.username(fromPage: String(decoding: r.0, as: UTF8.self))
         }
-        if !loggedIn { username = nil; notifications = [] }
+        if !loggedIn, username != nil || !notifications.isEmpty { username = nil; notifications = [] }
         UIApplication.shared.applicationIconBadgeNumber = hasUnread ? 1 : 0
     }
 

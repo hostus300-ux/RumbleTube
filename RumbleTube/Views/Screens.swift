@@ -122,8 +122,8 @@ struct SettingsView: View {
                 Picker("Discover opens on", selection: pref(\.discoverPage)) {
                     ForEach(DiscoverModel.Page.allCases) { Text($0.rawValue).tag($0.rawValue) }
                 }
-                Picker("Discover sorted by", selection: pref(\.discoverSort)) {
-                    ForEach(DiscoverModel.Sort.allCases) { Text($0.rawValue).tag($0.rawValue) }
+                Picker("Discover shows", selection: pref(\.discoverSort)) {
+                    ForEach(DiscoverSection.videoSections) { Text($0.rawValue).tag($0.rawValue) }
                 }
                 Picker("My Feed opens on", selection: pref(\.myFeedPill)) {
                     ForEach(MyFeedPill.allCases) { Text($0.title).tag($0.rawValue) }

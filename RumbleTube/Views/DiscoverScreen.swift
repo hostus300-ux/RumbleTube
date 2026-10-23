@@ -194,20 +194,97 @@ enum SnapshotStore {
     }
 }
 
+// MARK: - Sections
+
+/// What the chips under Discover's Videos / Live switch show.
+enum DiscoverSection: String, CaseIterable, Identifiable {
+    case trending = "Trending", popular = "Popular", forYou = "For You", editorPicks = "Editor Picks"
+    case latest = "Latest", browse = "Browse", featured = "Featured", newest = "Newest"
+    var id: String { rawValue }
+
+    static let videoSections: [DiscoverSection] = [.trending, .popular, .forYou, .editorPicks, .latest, .browse, .featured]
+    static let liveSections: [DiscoverSection] = [.popular, .forYou, .newest]
+
+    var icon: String {
+        switch self {
+        case .trending: return "chart.line.uptrend.xyaxis"
+        case .popular: return "flame"
+        case .forYou: return "sparkles"
+        case .editorPicks: return "star"
+        case .latest, .newest: return "clock"
+        case .browse: return "square.grid.2x2"
+        case .featured: return "person.2"
+        }
+    }
+
+    /// Sections ranked on the phone (the rest come straight from rumble.com).
+    var ranked: DiscoverModel.Sort? {
+        switch self {
+        case .popular: return .trending
+        case .forYou: return .forYou
+        case .newest: return .newest
+        default: return nil
+        }
+    }
+
+    /// Older versions stored "Trending" for the phone-ranked list; it's still a valid choice (now rumble.com's own).
+    static func fromPref(_ s: String, live: Bool) -> DiscoverSection {
+        let v = DiscoverSection(rawValue: s) ?? .trending
+        let allowed = live ? liveSections : videoSections
+        return allowed.contains(v) ? v : allowed[0]
+    }
+}
+
+/// rumble.com's own lists (Trending, Editor Picks, Latest), Browse and Featured channels.
+@MainActor
+final class DiscoverSiteFeeds: ObservableObject {
+    static let shared = DiscoverSiteFeeds()
+    let trending = ListingModel { try await RumbleService.shared.trending(page: $0) }
+    let editorPicks = ListingModel { try await RumbleService.shared.listing("/editor-picks", page: $0, allowWebView: false) }
+    let latest = ListingModel { try await RumbleService.shared.latest(page: $0) }
+    @Published private(set) var categories: [BrowseCategory] = []
+    @Published private(set) var featured: [FeaturedChannel] = []
+    @Published private(set) var loading = false
+    @Published var error: String?
+
+    func listing(_ s: DiscoverSection) -> ListingModel? {
+        switch s {
+        case .trending: return trending
+        case .editorPicks: return editorPicks
+        case .latest: return latest
+        default: return nil
+        }
+    }
+
+    func loadBrowse(force: Bool = false) async {
+        guard force || categories.isEmpty, !loading else { return }
+        loading = true; defer { loading = false }
+        do { categories = try await RumbleService.shared.browse(); error = nil }
+        catch { self.error = "Couldn't load categories. Pull to try again." }
+    }
+
+    func loadFeatured(force: Bool = false) async {
+        guard force || featured.isEmpty, !loading else { return }
+        loading = true; defer { loading = false }
+        do { featured = try await RumbleService.shared.featuredChannels(); error = nil }
+        catch { self.error = "Couldn't load featured channels. Pull to try again." }
+    }
+}
+
 // MARK: - Screen
 
 struct DiscoverScreen: View {
     @ObservedObject private var model = DiscoverModel.shared
     @EnvironmentObject var player: PlayerModel
     @State private var page = DiscoverModel.Page(rawValue: LibraryStore.shared.data.prefs.discoverPage) ?? .videos
-    @State private var videoSort = DiscoverModel.Sort(rawValue: LibraryStore.shared.data.prefs.discoverSort) ?? .trending
-    @State private var liveSort = DiscoverModel.Sort(rawValue: LibraryStore.shared.data.prefs.discoverSort) ?? .trending
+    @State private var videoSection = DiscoverSection.fromPref(LibraryStore.shared.data.prefs.discoverSort, live: false)
+    @State private var liveSection = DiscoverSection.fromPref(LibraryStore.shared.data.prefs.discoverSort, live: true)
 
     var body: some View {
-        // The pages fill the screen and scroll underneath the glass header (title + Videos / Live).
+        // The pages fill the screen and scroll underneath the header (title + Videos / Live).
         TabView(selection: $page) {
-            feed(.videos, sort: $videoSort).tag(DiscoverModel.Page.videos)
-            feed(.live, sort: $liveSort).tag(DiscoverModel.Page.live)
+            DiscoverFeed(page: .videos, section: $videoSection).tag(DiscoverModel.Page.videos)
+            DiscoverFeed(page: .live, section: $liveSection).tag(DiscoverModel.Page.live)
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
         .animation(.easeInOut(duration: 0.2), value: page)
@@ -217,58 +294,206 @@ struct DiscoverScreen: View {
             }
             .pickerStyle(.segmented)
         }
-        .task { await model.refresh() }
     }
+}
 
-    private func feed(_ p: DiscoverModel.Page, sort: Binding<DiscoverModel.Sort>) -> some View {
-        let list = model.list(p, sort.wrappedValue)
-        return ScrollView {
+/// One Discover page (Videos or Live): section chips, then that section's content.
+private struct DiscoverFeed: View {
+    let page: DiscoverModel.Page
+    @Binding var section: DiscoverSection
+    @ObservedObject private var model = DiscoverModel.shared
+    @ObservedObject private var site = DiscoverSiteFeeds.shared
+    @EnvironmentObject var player: PlayerModel
+    @EnvironmentObject var router: Router
+
+    private var sections: [DiscoverSection] { page == .live ? DiscoverSection.liveSections : DiscoverSection.videoSections }
+
+    var body: some View {
+        ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(DiscoverModel.Sort.allCases) { s in
-                            Button { withAnimation(.easeInOut(duration: 0.15)) { sort.wrappedValue = s } } label: {
-                                Chip(title: s.rawValue, icon: s.icon, selected: sort.wrappedValue == s)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding(.horizontal, 12).padding(.vertical, 8)
-                }
-                if sort.wrappedValue == .forYou && model.forYouCold {
-                    Text("Watch a few videos and For You will start matching your taste. Showing Trending for now.")
-                        .font(.footnote).foregroundStyle(.secondary).padding(.horizontal, 16).padding(.bottom, 8)
-                }
-                CardGrid {
-                    ForEach(list) { r in
-                        Button { player.play(r.item) } label: {
-                            VStack(alignment: .leading, spacing: 6) {
-                                if let reason = r.reason {
-                                    Text(reason).font(.caption.weight(.semibold)).foregroundStyle(Color.accentColor)
-                                        .padding(.horizontal, 12)
-                                }
-                                VideoCard(item: r.item)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                if list.isEmpty {
-                    VStack(spacing: 10) {
-                        if model.loading { ProgressView() }
-                        else if let e = model.error {
-                            Text(e).font(.footnote).foregroundStyle(.secondary)
-                            Button("Try again") { Task { await model.refresh(force: true) } }.buttonStyle(.bordered)
-                        } else {
-                            Text(p == .live ? "No live streams right now." : "Nothing here yet.").foregroundStyle(.secondary)
-                        }
-                    }
-                    .frame(maxWidth: .infinity).padding(50)
-                }
+                chips
+                content
             }
         }
         .reportsScrollToHeader()
-        .refreshable { await model.refresh(force: true) }
+        .refreshable { await refresh(force: true) }
+        .task(id: section) { await refresh(force: false) }
         .miniPlayerSpace()
+    }
+
+    private var chips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(sections) { s in
+                    Button { withAnimation(.easeInOut(duration: 0.15)) { section = s } } label: {
+                        Chip(title: s.rawValue, icon: s.icon, selected: section == s)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 12).padding(.vertical, 8)
+        }
+    }
+
+    @ViewBuilder private var content: some View {
+        if let sort = section.ranked {
+            rankedList(model.list(page, sort))
+        } else if let feed = site.listing(section) {
+            SiteListing(model: feed)
+        } else if section == .browse {
+            browseGrid
+        } else if section == .featured {
+            featuredList
+        }
+    }
+
+    private func refresh(force: Bool) async {
+        if section.ranked != nil { await model.refresh(force: force) }
+        else if let feed = site.listing(section) {
+            if force || !feed.loadedOnce { await feed.reload() }
+        } else if section == .browse { await site.loadBrowse(force: force) }
+        else if section == .featured { await site.loadFeatured(force: force) }
+    }
+
+    // MARK: phone-ranked (Popular / For You / Newest)
+
+    @ViewBuilder private func rankedList(_ list: [RankedVideo]) -> some View {
+        if section == .forYou && model.forYouCold {
+            Text("Watch a few videos and For You will start matching your taste. Showing Popular for now.")
+                .font(.footnote).foregroundStyle(.secondary).padding(.horizontal, 16).padding(.bottom, 8)
+        }
+        CardGrid {
+            ForEach(list) { r in
+                Button { player.play(r.item) } label: {
+                    VStack(alignment: .leading, spacing: 6) {
+                        if let reason = r.reason {
+                            Text(reason).font(.caption.weight(.semibold)).foregroundStyle(Color.accentColor)
+                                .padding(.horizontal, 12)
+                        }
+                        VideoCard(item: r.item)
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        if list.isEmpty {
+            emptyState(loading: model.loading, error: model.error,
+                       empty: page == .live ? "No live streams right now." : "Nothing here yet.") {
+                Task { await model.refresh(force: true) }
+            }
+        }
+    }
+
+    // MARK: Browse
+
+    private var browseGrid: some View {
+        VStack(spacing: 0) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 10)], spacing: 14) {
+                ForEach(site.categories) { c in
+                    NavigationLink(value: AppRoute.listing(title: c.title, path: c.path)) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Color.secondary.opacity(0.15)
+                                .aspectRatio(2 / 3, contentMode: .fit)
+                                .overlay {
+                                    if let s = c.image, let u = URL(string: s) {
+                                        AsyncImage(url: u) { $0.image?.resizable().scaledToFill() }
+                                    }
+                                }
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                            Text(c.title).font(.caption.weight(.semibold)).lineLimit(1)
+                            if let v = c.viewers {
+                                Text(v).font(.caption2).foregroundStyle(Color.rumbleRed).lineLimit(1)
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 12)
+            if site.categories.isEmpty {
+                emptyState(loading: site.loading, error: site.error, empty: "No categories.") { Task { await site.loadBrowse(force: true) } }
+            }
+        }
+    }
+
+    // MARK: Featured channels
+
+    private var featuredList: some View {
+        LazyVStack(spacing: 0) {
+            ForEach(site.featured) { f in
+                Button { open(f) } label: {
+                    HStack(spacing: 12) {
+                        ChannelAvatar(name: f.name, url: f.avatar, size: 44)
+                            .overlay(Circle().stroke(f.livePath != nil ? Color.rumbleRed : .clear, lineWidth: 2.5))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(f.name).font(.subheadline.weight(.semibold)).lineLimit(1)
+                            if f.livePath != nil {
+                                Text(f.viewers.map { "● LIVE · \($0) watching" } ?? "● LIVE")
+                                    .font(.caption.weight(.semibold)).foregroundStyle(Color.rumbleRed)
+                            }
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+                    }
+                    .padding(.horizontal, 16).padding(.vertical, 8)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            if site.featured.isEmpty {
+                emptyState(loading: site.loading, error: site.error, empty: "No featured channels.") { Task { await site.loadFeatured(force: true) } }
+            }
+        }
+    }
+
+    private func open(_ f: FeaturedChannel) {
+        if let live = f.livePath, let item = RumbleService.item(fromLink: "https://rumble.com" + live) {
+            player.play(item)
+        } else if let ref = f.ref {
+            router.open(ref)
+        }
+    }
+
+    private func emptyState(loading: Bool, error: String?, empty: String, retry: @escaping () -> Void) -> some View {
+        VStack(spacing: 10) {
+            if loading { ProgressView() }
+            else if let e = error {
+                Text(e).font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                Button("Try again", action: retry).buttonStyle(.bordered)
+            } else {
+                Text(empty).foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity).padding(50)
+    }
+}
+
+/// A rumble.com list (Trending, Editor Picks, Latest) with paging as you reach the end.
+private struct SiteListing: View {
+    @ObservedObject var model: ListingModel
+    @EnvironmentObject var player: PlayerModel
+
+    var body: some View {
+        CardGrid {
+            ForEach(model.items) { v in
+                Button { player.play(v) } label: { VideoCard(item: v) }
+                    .buttonStyle(.plain)
+                    .onAppear { if v.id == model.items.last?.id { Task { await model.loadMore() } } }
+            }
+        }
+        if model.items.isEmpty {
+            VStack(spacing: 10) {
+                if model.loading || !model.loadedOnce { ProgressView() }
+                else if let e = model.error {
+                    Text(e).font(.footnote).foregroundStyle(.secondary)
+                    Button("Try again") { Task { await model.reload() } }.buttonStyle(.bordered)
+                } else {
+                    Text("Nothing here right now.").foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity).padding(50)
+        } else if model.loading {
+            ProgressView().frame(maxWidth: .infinity).padding()
+        }
     }
 }

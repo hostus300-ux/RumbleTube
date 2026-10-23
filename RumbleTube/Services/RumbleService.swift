@@ -10,6 +10,16 @@ enum RumbleHTTP {
         return URLSession(configuration: c)
     }()
 
+    /// No cookies: for pages that look different when signed in (e.g. the Featured Channels sidebar).
+    static let anonymous: URLSession = {
+        let c = URLSessionConfiguration.ephemeral
+        c.httpAdditionalHeaders = ["User-Agent": userAgent, "Accept-Language": "en-US,en;q=0.9"]
+        c.httpShouldSetCookies = false
+        c.httpCookieAcceptPolicy = .never
+        c.timeoutIntervalForRequest = 15
+        return URLSession(configuration: c)
+    }()
+
     static func get(_ url: URL) async throws -> (Data, Int) {
         do {
             let (data, resp) = try await session.data(from: url)
@@ -70,6 +80,32 @@ final class RumbleService {
         guard allowWebView else { throw RumbleError.noVideo }
         DiagLog.shared.log("parse", "listing fell back to web view: \(url.path)")
         return try await PageExtractor.shared.extract(url)
+    }
+
+    // MARK: website sections (sidebar on rumble.com)
+
+    /// rumble.com's own Trending page (most viewed today).
+    func trending(page: Int = 1) async throws -> ListingPage {
+        try await listing("/videos", page: page, query: [URLQueryItem(name: "sort", value: "views"), URLQueryItem(name: "date", value: "today")],
+                          allowWebView: false)
+    }
+
+    /// The sidebar's "Latest": newest uploads this week.
+    func latest(page: Int = 1) async throws -> ListingPage {
+        try await listing("/videos", page: page, query: [URLQueryItem(name: "date", value: "this-week")], allowWebView: false)
+    }
+
+    func browse() async throws -> [BrowseCategory] {
+        let r = try await RumbleHTTP.get(URL(string: "https://rumble.com/browse")!)
+        guard r.1 == 200 else { throw RumbleError.http(r.1) }
+        return try BrowseParser.parse(String(decoding: r.0, as: UTF8.self))
+    }
+
+    func featuredChannels() async throws -> [FeaturedChannel] {
+        let (data, resp) = try await RumbleHTTP.anonymous.data(from: URL(string: "https://rumble.com/")!)
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        guard code == 200 else { throw RumbleError.http(code) }
+        return try FeaturedChannelsParser.parse(String(decoding: data, as: UTF8.self))
     }
 
     func search(_ query: String, sort: SearchSort = .relevance, page: Int = 1) async throws -> ListingPage {

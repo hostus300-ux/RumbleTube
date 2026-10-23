@@ -85,6 +85,8 @@ struct Chip: View {
     var icon: String? = nil
     var asset: String? = nil
     var selected = false
+    /// Live buttons use rumble.com's red, like the site's Live pill.
+    private var isLive: Bool { title.caseInsensitiveCompare("Live") == .orderedSame }
     var body: some View {
         HStack(spacing: 5) {
             if let asset { Image(asset).renderingMode(.template).resizable().scaledToFit().frame(width: 15, height: 15) }
@@ -93,11 +95,13 @@ struct Chip: View {
         }
         .padding(.horizontal, 14).padding(.vertical, 7)
         .background {
-            if selected { Capsule().fill(Color.primary) }
+            if isLive { Capsule().fill(Color.rumbleRed.opacity(selected ? 1 : 0.85)) }
+            else if selected { Capsule().fill(Color.primary) }
             else if !GlassUI.enabled { Capsule().fill(Color.secondary.opacity(0.18)) }
         }
-        .modifier(ChipGlass(on: !selected))
-        .foregroundStyle(selected ? Color(.systemBackground) : Color.primary)
+        .overlay { if isLive && selected { Capsule().stroke(Color.white.opacity(0.9), lineWidth: 1.5) } }
+        .modifier(ChipGlass(on: !selected && !isLive))
+        .foregroundStyle(isLive ? Color.white : (selected ? Color(.systemBackground) : Color.primary))
     }
 }
 
@@ -768,11 +772,11 @@ struct ChannelCircle: View {
         VStack(spacing: 6) {
             ChannelAvatar(name: channel.ref.name, url: channel.ref.avatar, size: 56)
                 .padding(3)
-                .overlay(Circle().stroke(live ? Color.red : (recent ? Color.rumbleGreen : Color.clear), lineWidth: 3))
+                .overlay(Circle().stroke(live ? Color.rumbleRed : (recent ? Color.rumbleGreen : Color.clear), lineWidth: 3))
                 .overlay(alignment: .bottom) {
                     if live {
                         Text("LIVE").font(.system(size: 9, weight: .heavy)).padding(.horizontal, 5).padding(.vertical, 1.5)
-                            .background(Color.red, in: RoundedRectangle(cornerRadius: 3)).foregroundStyle(.white).offset(y: 6)
+                            .background(Color.rumbleRed, in: RoundedRectangle(cornerRadius: 3)).foregroundStyle(.white).offset(y: 6)
                     }
                 }
             Text(channel.ref.name).font(.caption2).lineLimit(1).frame(width: 68)
@@ -813,6 +817,9 @@ struct AccountScreen: View {
                 VStack(spacing: 0) {
                     NavigationLink(value: AppRoute.downloads) { menuRow("Downloads", "arrow.down.circle") }
                     Divider().padding(.leading, 56)
+                    // Rumble's merch store (the sidebar's "Shop" on rumble.com) opens in Safari.
+                    Link(destination: URL(string: "https://www.stickermule.com/rumble")!) { menuRow("Shop", "bag") }
+                    Divider().padding(.leading, 56)
                     NavigationLink(value: AppRoute.settings) { menuRow("Settings", "gearshape") }
                     if account.loggedIn {
                         Divider().padding(.leading, 56)
@@ -830,7 +837,7 @@ struct AccountScreen: View {
             await account.loadProfile()
             await WatchHistorySync.shared.sync(force: true)
         }
-        .appHeader("Me", settings: true)
+        .appHeader("Me")
         .miniPlayerSpace()
         .task(id: account.loggedIn) { if account.loggedIn { await account.loadProfile() } }
         .onAppear {
@@ -931,7 +938,7 @@ struct FollowingListScreen: View {
                 Button { open(c) } label: {
                     HStack(spacing: 12) {
                         ChannelAvatar(name: c.ref.name, url: c.ref.avatar, size: 48)
-                            .overlay(Circle().stroke(isLive(c) ? Color.red : .clear, lineWidth: 2.5).padding(-3))
+                            .overlay(Circle().stroke(isLive(c) ? Color.rumbleRed : .clear, lineWidth: 2.5).padding(-3))
                         VStack(alignment: .leading, spacing: 2) {
                             Text(c.ref.name).font(.body.weight(.semibold)).lineLimit(1)
                             if let f = c.followers { Text("\(CountFormat.short(f)) followers").font(.caption).foregroundStyle(.secondary) }
@@ -939,7 +946,7 @@ struct FollowingListScreen: View {
                         Spacer()
                         if isLive(c) {
                             Label(c.liveViewers.map { CountFormat.short($0) } ?? "LIVE", systemImage: "dot.radiowaves.left.and.right")
-                                .font(.caption.weight(.bold)).foregroundStyle(.red)
+                                .font(.caption.weight(.bold)).foregroundStyle(Color.rumbleRed)
                         }
                     }
                 }

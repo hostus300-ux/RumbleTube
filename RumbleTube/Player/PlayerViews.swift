@@ -43,10 +43,10 @@ struct PlayerScreen: View {
     @State private var moreFor: String?
     @StateObject private var chat = LiveChatModel()
     @State private var showChat = true
-    enum Section: String, CaseIterable, Identifiable { case chat = "Live chat", details = "Details", comments = "Comments"; var id: String { rawValue } }
-    @State private var section: Section = .details
-
-    private var sections: [Section] { liveChat != nil ? [.chat, .details, .comments] : [.details, .comments] }
+    /// Videos: the Comments button swaps the details area for comments until you close them.
+    @State private var commentsOpen = false
+    /// Live streams: details live in a sheet so the chat gets the whole space.
+    @State private var showLiveDetails = false
 
     /// Comments as a section of the player (readable, no floating card).
     @ViewBuilder private var inlineComments: some View {
@@ -69,12 +69,14 @@ struct PlayerScreen: View {
     var body: some View {
         applySheets(
             Group {
-                if hsc == .regular { wideLayout } else { phoneLayout }
+                // iPad only: an iPhone rotating to fullscreen briefly reports a regular width, which flashed this layout.
+                if hsc == .regular && UIDevice.current.userInterfaceIdiom == .pad { wideLayout } else { phoneLayout }
             }
             .task(id: liveChat) {
-                if let c = liveChat { chat.start(c); section = .chat } else { chat.stop(); if section == .chat { section = .details } }
+                if let c = liveChat { chat.start(c) } else { chat.stop() }
             }
             .onDisappear { chat.stop() }
+            .onChange(of: player.item?.id) { _ in commentsOpen = false }
             .background(Color(.systemBackground))
         )
     }
@@ -86,7 +88,12 @@ struct PlayerScreen: View {
             HStack(alignment: .top, spacing: 0) {
                 VStack(spacing: 0) {
                     videoArea
-                    ScrollView { details.padding(.bottom, 40) }
+                    if commentsOpen {
+                        commentsHeader
+                        inlineComments
+                    } else {
+                        ScrollView { details.padding(.bottom, 40) }
+                    }
                 }
                 .frame(maxWidth: .infinity)
                 Divider()
@@ -118,21 +125,63 @@ struct PlayerScreen: View {
         VStack(spacing: 0) {
             Capsule().fill(Color.secondary.opacity(0.4)).frame(width: 40, height: 5).padding(.vertical, 6)
             videoArea
-            Picker("", selection: $section) {
-                ForEach(sections) { Text($0.rawValue).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 14).padding(.vertical, 8)
-            switch section {
-            case .chat where liveChat != nil:
+            if liveChat != nil {
+                // Live: a slim title strip, then the chat. Tap the strip for the full details.
+                liveStrip
+                Divider()
                 LiveChatView(chat: chat, videoURL: player.detail.flatMap { URL(string: $0.url) },
                              channel: player.detail?.channel ?? player.item?.channel)
-            case .comments:
+            } else if commentsOpen {
+                commentsHeader
                 inlineComments
-            default:
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            } else {
                 ScrollView { details.padding(.bottom, 40) }
             }
         }
+    }
+
+    private var commentsHeader: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Comments").font(.headline)
+                Spacer()
+                Button { withAnimation(.easeInOut(duration: 0.2)) { commentsOpen = false } } label: {
+                    Image(systemName: "xmark").font(.subheadline.weight(.bold))
+                        .frame(width: 32, height: 32).background(Color.secondary.opacity(0.15), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close comments")
+            }
+            .padding(.horizontal, 14).padding(.vertical, 8)
+            Divider()
+        }
+    }
+
+    /// Live streams: title, LIVE + viewers, and the channel, in one compact row above the chat.
+    private var liveStrip: some View {
+        let d = player.detail, item = player.item
+        return Button { showLiveDetails = true } label: {
+            HStack(spacing: 10) {
+                ChannelAvatar(name: d?.channel?.name ?? item?.channelName ?? "?",
+                              url: d?.channel?.avatar ?? channelAvatar ?? item?.channelAvatar, size: 34)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(d?.title ?? item?.title ?? "").font(.subheadline.weight(.semibold)).lineLimit(1)
+                    HStack(spacing: 6) {
+                        Text("LIVE").font(.caption2.weight(.bold)).padding(.horizontal, 5).padding(.vertical, 1)
+                            .background(Color.rumbleRed, in: RoundedRectangle(cornerRadius: 3)).foregroundStyle(.white)
+                        Text([d?.channel?.name ?? item?.channelName, meta(d, item)].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
+                            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 4)
+                Image(systemName: "chevron.down").font(.caption.weight(.bold)).foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Shows the stream's details")
     }
 
     private func applySheets<V: View>(_ v: V) -> some View {
@@ -152,6 +201,15 @@ struct PlayerScreen: View {
                 .environmentObject(account).environmentObject(player).environmentObject(library).environmentObject(router)
                 .presentationDetents([.medium, .large])
             }
+        }
+        .sheet(isPresented: $showLiveDetails) {
+            NavigationStack {
+                ScrollView { details.padding(.bottom, 30) }
+                    .navigationTitle("Details").navigationBarTitleDisplayMode(.inline)
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showLiveDetails = false } } }
+            }
+            .environmentObject(account).environmentObject(player).environmentObject(library).environmentObject(router)
+            .presentationDetents([.medium, .large])
         }
         .task(id: player.detail?.channel?.path) { await loadMore() }
         .fullScreenCover(isPresented: $player.fullscreen) {
@@ -182,7 +240,7 @@ struct PlayerScreen: View {
                 HStack(spacing: 6) {
                     if d?.liveStatus == .isLive {
                         Text("LIVE").font(.caption2.weight(.bold)).padding(.horizontal, 5).padding(.vertical, 2)
-                            .background(Color.red, in: RoundedRectangle(cornerRadius: 3)).foregroundStyle(.white)
+                            .background(Color.rumbleRed, in: RoundedRectangle(cornerRadius: 3)).foregroundStyle(.white)
                     }
                     Text(meta(d, item)).font(.caption).foregroundStyle(.secondary)
                 }
@@ -246,8 +304,10 @@ struct PlayerScreen: View {
                 if let likes = d?.likes {
                     pill(Label(likes, systemImage: "hand.thumbsup"))
                 }
-                Button { withAnimation { section = .comments } } label: {
-                    pill(Label("Comments", systemImage: "text.bubble"))
+                if d?.liveStatus != .isLive {
+                    Button { withAnimation(.easeInOut(duration: 0.2)) { commentsOpen = true } } label: {
+                        pill(Label("Comments", systemImage: "text.bubble"))
+                    }
                 }
                 Button { showSkipPanel = true } label: {
                     pill(Label(player.segments.isEmpty ? "RumbleSkip" : "RumbleSkip · \(player.segments.count)",
@@ -352,6 +412,7 @@ struct PlayerScreen: View {
 // MARK: - Mini player
 
 struct MiniPlayer: View {
+    @ObservedObject private var clock = PlayerClock.shared   // redraw as time moves
     @EnvironmentObject var player: PlayerModel
     @EnvironmentObject var library: LibraryStore
 
@@ -413,6 +474,7 @@ struct MiniPlayer: View {
 #if compiler(>=6.2)
 @available(iOS 26.0, *)
 struct MiniPlayerAccessory: View {
+    @ObservedObject private var clock = PlayerClock.shared   // redraw as time moves
     @EnvironmentObject var player: PlayerModel
     @Environment(\.tabViewBottomAccessoryPlacement) private var placement
 

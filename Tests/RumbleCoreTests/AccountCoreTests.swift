@@ -639,3 +639,33 @@ final class SettingsBackupTests: XCTestCase {
         XCTAssertTrue(b.summary.contains("1 muted"))
     }
 }
+
+final class DiscoverSectionsTests: XCTestCase {
+    func testBrowse() throws {
+        let html = """
+        <ul><li class="category"><a class="category__link link" href="/category/gaming"><img class="category__image" src="https://example.com/g.jpg"><strong class="category__title truncate">Gaming</strong></a><small class="category__views">1.2K viewers</small></li>
+        <li class="category"><a class="category__link link" href="/category/news"><img class="category__image" src=""><strong class="category__title">News</strong></a></li></ul>
+        """
+        let c = try BrowseParser.parse(html)
+        XCTAssertEqual(c.map(\.path), ["/category/gaming", "/category/news"])
+        XCTAssertEqual(c[0].viewers, "1.2K viewers")
+        XCTAssertNil(c[1].image)
+    }
+
+    func testFeaturedChannels() throws {
+        let html = """
+        <style>i.user-image--img--id-abc123 { background-image: url(https://example.com/a.jpg); }</style>
+        <a class="main-menu-item-channel" title="Followed One" href="/c/FollowedOne">x</a>
+        <h3 class="main-menu-heading"><span>Featured Channels</span></h3>
+        <div><a class="main-menu-item-channel main-menu-item-channel-is-live" title="LiveShow" href="/v123-show.html?e9s=x"><div><i class='user-image user-image--img user-image--img--id-abc123'></i><span class="main-menu-item-label main-menu-item-channel-label">LiveShow 4.1K</span></div></a></div>
+        <div><a class="main-menu-item-channel " title="Example Channel" href="/c/ExampleChannel?e9s=src_v1_clr"><span class="main-menu-item-label main-menu-item-channel-label">Example Channel</span></a></div>
+        """
+        let f = try FeaturedChannelsParser.parse(html)
+        XCTAssertEqual(f.count, 2, "channels before the Featured heading are ignored")
+        XCTAssertEqual(f[0].livePath, "/v123-show.html")
+        XCTAssertEqual(f[0].viewers, "4.1K")
+        XCTAssertEqual(f[0].avatar, "https://example.com/a.jpg")
+        XCTAssertEqual(f[1].path, "/c/ExampleChannel")
+        XCTAssertNil(f[1].livePath)
+    }
+}

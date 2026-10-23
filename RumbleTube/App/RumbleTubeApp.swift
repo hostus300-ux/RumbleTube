@@ -87,7 +87,8 @@ struct RootView: View {
     @EnvironmentObject var player: PlayerModel
     @EnvironmentObject var library: LibraryStore
     @EnvironmentObject var account: AccountStore
-    @StateObject private var shorts = ShortsModel.shared
+    /// Not observed here: Shorts publishes progress several times a second, which would redraw the whole app.
+    private let shorts = ShortsModel.shared
     @StateObject private var gate = LaunchGate()
     @State private var splashGone = false
     /// Your Rumble profile picture, drawn as a small circle for the "Me" tab.

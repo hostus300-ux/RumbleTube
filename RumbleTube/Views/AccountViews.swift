@@ -7,28 +7,91 @@ struct LoginView: View {
     @EnvironmentObject var account: AccountStore
     @Environment(\.dismiss) private var dismiss
     @State private var checking = false
+    @State private var progress: Double = 0
+    @State private var pageReady = false
+    @State private var success = false
 
     var body: some View {
         NavigationStack {
-            LoginWebView { url in
-                // Back on rumble.com (not the auth pages) → check whether we're signed in.
-                guard let host = url.host, host == "rumble.com" || host == "www.rumble.com",
-                      !url.path.contains("login") else { return }
-                checking = true
-                Task {
-                    await account.refreshStatus()
-                    checking = false
-                    if account.loggedIn { dismiss() }
+            VStack(spacing: 0) {
+                header
+                ZStack {
+                    LoginWebView(onNavigate: handle, onProgress: { p in
+                        progress = p
+                        if p > 0.6, !pageReady { withAnimation(.easeOut(duration: 0.25)) { pageReady = true } }
+                    })
+                    .opacity(pageReady && !success ? 1 : 0)
+                    if !pageReady && !success {
+                        VStack(spacing: 12) {
+                            ProgressView()
+                            Text("Opening Rumble sign-in…").font(.footnote).foregroundStyle(.secondary)
+                        }
+                    }
+                    if success {
+                        VStack(spacing: 12) {
+                            Image(systemName: "checkmark.circle.fill").font(.system(size: 56)).foregroundStyle(Color.rumbleGreen)
+                                .transition(.scale.combined(with: .opacity))
+                            Text(account.username.map { "Signed in as \($0)" } ?? "Signed in").font(.headline)
+                        }
+                    }
+                    if checking && !success {
+                        ProgressView().padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+                    }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .overlay { if checking { ProgressView().padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10)) } }
-            .navigationTitle("Sign in to Rumble")
+            .background(Color(.systemBackground))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { Task { await account.refreshStatus(); dismiss() } }
+            }
+        }
+        .interactiveDismissDisabled(checking)
+    }
+
+    /// Native top: the app mark, what's happening, and proof you're on Rumble's real site.
+    private var header: some View {
+        VStack(spacing: 10) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color(hex: 0x85C742)).frame(width: 56, height: 42)
+                HStack(spacing: 3) {
+                    Image(systemName: "play.fill").font(.system(size: 18, weight: .black))
+                    RoundedRectangle(cornerRadius: 1.5).frame(width: 3.5, height: 19)
                 }
+                .foregroundStyle(Color(hex: 0x13200B))
+            }
+            Text("Sign in to Rumble").font(.title3.weight(.bold))
+            Text("Your password goes straight to Rumble. RumbleTube only keeps the sign-in so it can load your feed.")
+                .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.horizontal, 24)
+            Label("rumble.com", systemImage: "lock.fill")
+                .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                .padding(.horizontal, 10).padding(.vertical, 4)
+                .background(Color.secondary.opacity(0.12), in: Capsule())
+            ProgressView(value: progress)
+                .tint(Color.rumbleGreen)
+                .opacity(progress > 0 && progress < 1 ? 1 : 0)
+                .animation(.easeOut(duration: 0.2), value: progress)
+        }
+        .padding(.top, 4)
+    }
+
+    private func handle(_ url: URL) {
+        // Back on rumble.com (not the auth pages) → check whether we're signed in.
+        guard let host = url.host, host == "rumble.com" || host == "www.rumble.com",
+              !url.path.contains("login"), !checking else { return }
+        checking = true
+        Task {
+            await account.refreshStatus()
+            checking = false
+            if account.loggedIn {
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                // Pull your Rumble history, profile and follows right away (not on the next periodic sync).
+                Task { await WatchHistorySync.shared.sync(force: true) }
+                Task { await account.loadProfile() }
+                Task { await MyFeedModel.shared.refreshChannels(force: true) }
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) { success = true }
+                try? await Task.sleep(nanoseconds: 900_000_000)
+                dismiss()
             }
         }
     }
@@ -36,23 +99,46 @@ struct LoginView: View {
 
 struct LoginWebView: UIViewRepresentable {
     var onNavigate: (URL) -> Void
+    var onProgress: (Double) -> Void = { _ in }
 
-    func makeCoordinator() -> Coordinator { Coordinator(onNavigate: onNavigate) }
+    func makeCoordinator() -> Coordinator { Coordinator(onNavigate: onNavigate, onProgress: onProgress) }
 
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .default()
         config.userContentController.addUserScript(WKUserScript(source: Self.cookieBannerScript,
                                                                  injectionTime: .atDocumentEnd, forMainFrameOnly: false))
+        config.userContentController.addUserScript(WKUserScript(source: Self.focusScript,
+                                                                 injectionTime: .atDocumentStart, forMainFrameOnly: true))
         let web = WKWebView(frame: .zero, configuration: config)
         web.customUserAgent = RumbleHTTP.userAgent
+        web.isOpaque = false
+        web.backgroundColor = .clear
+        web.scrollView.backgroundColor = .clear
         web.navigationDelegate = context.coordinator
         web.uiDelegate = context.coordinator
+        context.coordinator.observe(web)
         web.load(URLRequest(url: URL(string: "https://rumble.com/login.php")!))
         return web
     }
 
     func updateUIView(_ uiView: WKWebView, context: Context) {}
+
+    /// On Rumble's sign-in pages, hide the site's own header, menu and footer so only the form shows.
+    static let focusScript = """
+    (function () {
+      if (!/login|register|auth|password|sso/i.test(location.pathname + location.host)) return;
+      function tidy() {
+        var sel = 'header, footer, .header, .footer, .main-menu, [data-js=main_menu], .header-div, .sidebar, .app-banner, .smart-banner';
+        document.querySelectorAll(sel).forEach(function (el) {
+          // Never hide anything that holds the sign-in form itself.
+          if (!el.querySelector('input, form, button[type=submit]')) el.style.setProperty('display', 'none', 'important');
+        });
+      }
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', tidy); else tidy();
+      setTimeout(tidy, 800);
+    })();
+    """
 
     /// Rumble's cookie consent pop-up (OneTrust) covers the sign-in form. This answers it with
     /// "Reject All" (only essential cookies, which sign-in needs) and hides it, on every page of the flow.
@@ -97,7 +183,18 @@ struct LoginWebView: UIViewRepresentable {
 
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         let onNavigate: (URL) -> Void
-        init(onNavigate: @escaping (URL) -> Void) { self.onNavigate = onNavigate }
+        let onProgress: (Double) -> Void
+        private var progressObs: NSKeyValueObservation?
+        init(onNavigate: @escaping (URL) -> Void, onProgress: @escaping (Double) -> Void) {
+            self.onNavigate = onNavigate; self.onProgress = onProgress
+        }
+
+        func observe(_ web: WKWebView) {
+            progressObs = web.observe(\.estimatedProgress, options: [.new]) { [weak self] w, _ in
+                let p = w.estimatedProgress
+                DispatchQueue.main.async { self?.onProgress(p) }
+            }
+        }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             if let url = webView.url { onNavigate(url) }
@@ -206,7 +303,7 @@ struct InboxView: View {
         if t.contains("mention") { return ("at", .purple) }
         if t.contains("rumble") || t.contains("like") || t.contains("vote") { return ("hand.thumbsup.fill", .rumbleGreen) }
         if t.contains("follow") || t.contains("subscri") { return ("person.fill.badge.plus", .orange) }
-        if t.contains("live") { return ("dot.radiowaves.left.and.right", .red) }
+        if t.contains("live") { return ("dot.radiowaves.left.and.right", Color.rumbleRed) }
         if t.contains("rant") || t.contains("tip") { return ("dollarsign", .yellow) }
         return ("bell.fill", .gray)
     }

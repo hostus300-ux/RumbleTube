@@ -116,6 +116,7 @@ struct AirPlayButton: UIViewRepresentable {
 // MARK: - The stage: video + RumbleSkip overlays + controls + gestures
 
 struct PlayerStage: View {
+    @ObservedObject private var clock = PlayerClock.shared   // redraw as time moves
     @EnvironmentObject var player: PlayerModel
     @EnvironmentObject var library: LibraryStore
     var isFullscreen: Bool
@@ -359,11 +360,11 @@ struct PlayerStage: View {
                 if player.isLive {
                     Button { player.goLive(); scheduleHide() } label: {
                         HStack(spacing: 5) {
-                            Circle().fill(player.atLiveEdge ? Color.red : Color.white.opacity(0.6)).frame(width: 7, height: 7)
+                            Circle().fill(player.atLiveEdge ? Color.rumbleRed : Color.white.opacity(0.6)).frame(width: 7, height: 7)
                             Text("LIVE").font(.caption2.weight(.heavy))
                         }
                         .padding(.horizontal, 8).padding(.vertical, 4)
-                        .background(player.atLiveEdge ? Color.red.opacity(0.9) : Color.white.opacity(0.22), in: Capsule())
+                        .background(player.atLiveEdge ? Color.rumbleRed.opacity(0.9) : Color.white.opacity(0.22), in: Capsule())
                     }
                     .accessibilityLabel(player.atLiveEdge ? "Live" : "Jump to live")
                     if let n = player.liveViewers {

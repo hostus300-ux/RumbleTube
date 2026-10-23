@@ -26,8 +26,15 @@ final class ShortsModel: ObservableObject {
     @Published private(set) var paused = false
     @Published private(set) var loading = false
     @Published var error: String?
-    @Published private(set) var progress: Double = 0
-    @Published private(set) var duration: Double = 0
+    /// Playback position lives in `ShortsClock` so only the progress bar redraws as it moves.
+    var progress: Double {
+        get { ShortsClock.shared.progress }
+        set { if ShortsClock.shared.progress != newValue { ShortsClock.shared.progress = newValue } }
+    }
+    var duration: Double {
+        get { ShortsClock.shared.duration }
+        set { if ShortsClock.shared.duration != newValue { ShortsClock.shared.duration = newValue } }
+    }
     /// Held down for 2× speed.
     @Published private(set) var fast = false
     /// Shorts you said you're not interested in (this session); swiped past and not shown again.
@@ -212,7 +219,7 @@ final class ShortsModel: ObservableObject {
         progress = 0
         if prefs.autoplayShorts || !paused { playCurrent() }
         // keep only nearby players in memory
-        let keep = Set((max(0, index - 1)...min(items.count - 1, index + 2)).compactMap { items.indices.contains($0) ? items[$0].id : nil })
+        let keep = Set([index - 1, index, index + 1, index + 2].compactMap { items[safe: $0]?.id })
         for id in players.keys where !keep.contains(id) {
             players[id]?.pause(); players[id] = nil; loopers[id] = nil
         }
@@ -264,6 +271,13 @@ final class ShortsModel: ObservableObject {
     }
 }
 
+@MainActor
+final class ShortsClock: ObservableObject {
+    static let shared = ShortsClock()
+    @Published var progress: Double = 0
+    @Published var duration: Double = 0
+}
+
 // MARK: - Tab
 
 struct ShortsView: View {
@@ -287,12 +301,18 @@ struct ShortsView: View {
                 }
                 .padding()
             } else {
-                VerticalPager(count: shorts.items.count, index: $shorts.index, resetKey: shorts.source.rawValue) { i in
-                    ShortPage(item: shorts.items[i], isCurrent: i == shorts.index)
-                        .environmentObject(shorts).environmentObject(account).environmentObject(library)
-                        .environmentObject(router).environmentObject(player)
-                        .tint(Color.rumbleGreen)
+                VerticalPager(count: shorts.items.count, index: $shorts.index) { i in
+                    // Pages can outlive a feed switch for a frame, so never index blindly.
+                    if let item = shorts.items[safe: i] {
+                        ShortPage(item: item, isCurrent: i == shorts.index)
+                            .environmentObject(shorts).environmentObject(account).environmentObject(library)
+                            .environmentObject(router).environmentObject(player)
+                            .tint(Color.rumbleGreen)
+                    } else {
+                        Color.black
+                    }
                 }
+                .id(shorts.source)   // a fresh pager per feed: no stale pages from the other feed
                 .ignoresSafeArea(edges: .top)
             }
         }
@@ -552,9 +572,18 @@ struct ShortPage: View {
 
     // MARK: scrubber (drag to seek; grows while you drag)
 
-    private var scrubber: some View {
+    private var scrubber: some View { ShortScrubber(scrub: $scrub) }
+}
+
+/// Drag-to-seek bar; the only part of a short that redraws as playback moves.
+struct ShortScrubber: View {
+    @Binding var scrub: Double?
+    @EnvironmentObject var shorts: ShortsModel
+    @ObservedObject private var clock = ShortsClock.shared
+
+    var body: some View {
         GeometryReader { g in
-            let f = scrub ?? shorts.progress
+            let f = scrub ?? clock.progress
             ZStack(alignment: .leading) {
                 Rectangle().fill(Color.white.opacity(0.25))
                 Rectangle().fill(scrub == nil ? Color.white.opacity(0.85) : Color.rumbleGreen).frame(width: g.size.width * min(1, max(0, f)))
@@ -576,6 +605,9 @@ struct ShortPage: View {
         .frame(height: 22)
         .animation(.easeOut(duration: 0.12), value: scrub == nil)
     }
+}
+
+extension ShortPage {
 
     // MARK: likes
 
@@ -621,8 +653,7 @@ struct ShortSurface: UIViewRepresentable {
 struct VerticalPager<Page: View>: UIViewControllerRepresentable {
     let count: Int
     @Binding var index: Int
-    var resetKey: String = ""
-    let page: (Int) -> Page
+    @ViewBuilder let page: (Int) -> Page
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -637,16 +668,13 @@ struct VerticalPager<Page: View>: UIViewControllerRepresentable {
 
     func updateUIViewController(_ pvc: UIPageViewController, context: Context) {
         context.coordinator.parent = self
-        if context.coordinator.key != resetKey {
-            context.coordinator.key = resetKey
-            pvc.setViewControllers([context.coordinator.host(index)], direction: .forward, animated: false)
-            return
-        }
+        guard count > 0 else { return }
+        let target = min(max(0, index), count - 1)
         if let current = pvc.viewControllers?.first as? Host {
-            if current.index != index {
-                pvc.setViewControllers([context.coordinator.host(index)], direction: .forward, animated: false)
+            if current.index != target {
+                pvc.setViewControllers([context.coordinator.host(target)], direction: .forward, animated: false)
             } else {
-                current.rootView = AnyView(page(index))
+                current.rootView = AnyView(page(target))
             }
         }
     }
@@ -657,8 +685,7 @@ struct VerticalPager<Page: View>: UIViewControllerRepresentable {
 
     final class Coordinator: NSObject, UIPageViewControllerDataSource, UIPageViewControllerDelegate {
         var parent: VerticalPager
-        var key: String
-        init(_ parent: VerticalPager) { self.parent = parent; key = parent.resetKey }
+        init(_ parent: VerticalPager) { self.parent = parent }
 
         func host(_ i: Int) -> Host {
             let h = Host(rootView: AnyView(parent.page(i)))
@@ -679,7 +706,7 @@ struct VerticalPager<Page: View>: UIViewControllerRepresentable {
 
         func pageViewController(_ pvc: UIPageViewController, didFinishAnimating finished: Bool,
                                 previousViewControllers: [UIViewController], transitionCompleted completed: Bool) {
-            guard completed, let h = pvc.viewControllers?.first as? Host else { return }
+            guard completed, let h = pvc.viewControllers?.first as? Host, h.index < parent.count else { return }
             parent.index = h.index
         }
     }

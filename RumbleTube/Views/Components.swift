@@ -8,6 +8,8 @@ enum Theme {
 
 extension Color {
     static var rumbleGreen: Color { Color(hex: Theme.accentHex) }
+    /// rumble.com's live red (#F23160), used for every LIVE badge, ring and Live button.
+    static let rumbleRed = Color(hex: 0xF23160)
     init(hex: UInt32) {
         self.init(red: Double((hex >> 16) & 0xFF) / 255, green: Double((hex >> 8) & 0xFF) / 255,
                   blue: Double(hex & 0xFF) / 255)
@@ -77,7 +79,7 @@ struct Thumbnail: View {
             .clipped()
             .overlay(alignment: .bottomTrailing) {
                 if item.isLive {
-                    badge(item.watching.map { "● LIVE · \(CountFormat.short($0))" } ?? "● LIVE", Color.red)
+                    badge(item.watching.map { "● LIVE · \(CountFormat.short($0))" } ?? "● LIVE", Color.rumbleRed)
                 } else if item.upcoming == true {
                     badge("UPCOMING", Color.yellow.opacity(0.9), fg: .black)
                 } else if let d = item.duration {
@@ -415,7 +417,8 @@ struct CardGrid<Content: View>: View {
     @ViewBuilder var content: () -> Content
 
     var body: some View {
-        if hsc == .regular {
+        // iPad only: big iPhones report a regular width in landscape for a moment while rotating.
+        if hsc == .regular && UIDevice.current.userInterfaceIdiom == .pad {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 320, maximum: 520), spacing: 14, alignment: .top)],
                       alignment: .leading, spacing: 4) { content() }
                 .padding(.horizontal, 8)

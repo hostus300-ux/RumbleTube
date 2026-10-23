@@ -6,6 +6,13 @@ import SwiftUI
 import UIKit
 
 /// The single app-wide player: playback, resume, quality, lock-screen controls and RumbleSkip.
+/// The playback position on its own, so only the scrubber and mini-player progress redraw as it ticks.
+@MainActor
+final class PlayerClock: ObservableObject {
+    static let shared = PlayerClock()
+    @Published var time: Double = 0
+}
+
 @MainActor
 final class PlayerModel: ObservableObject {
     static let shared = PlayerModel()
@@ -23,7 +30,9 @@ final class PlayerModel: ObservableObject {
     var miniPlayerArmed: Bool { Date().timeIntervalSince(minimizedAt) > 0.7 }
     @Published private(set) var stream: StreamOption?
     @Published private(set) var isPlaying = false
-    @Published private(set) var currentTime: Double = 0
+    /// Not @Published: it changes 4× a second, and publishing it re-drew every screen watching the player.
+    /// Views that show the time observe `PlayerClock.shared` instead.
+    private(set) var currentTime: Double = 0 { didSet { if PlayerClock.shared.time != currentTime { PlayerClock.shared.time = currentTime } } }
     @Published private(set) var duration: Double = 0
     /// Live streams with DVR: the part of the stream you can rewind into (player time, seconds).
     @Published private(set) var liveWindow: ClosedRange<Double>?
@@ -386,7 +395,7 @@ final class PlayerModel: ObservableObject {
         currentTime = t
         updateLiveWindow()
         checkSkip()
-        if abs(t - lastSaved) > 5 { lastSaved = t; savePosition() }
+        if abs(t - lastSaved) > 15 { lastSaved = t; savePosition() }
         if (isLive || audioOnly), Date().timeIntervalSince(lastActivityUpdate) > 15 { updateLiveActivity() }
     }
 

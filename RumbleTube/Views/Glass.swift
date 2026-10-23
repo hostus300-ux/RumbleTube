@@ -99,20 +99,29 @@ extension View {
     }
 }
 
-// MARK: - Page header: big title with search / bell / settings on the same line
+// MARK: - Page header: title with bell / search on one line (YouTube-style: slides away while you scroll down)
 
-/// Shared between a page's header and its scroll view: scrolling down compacts the header, scrolling up restores it.
+/// Shared between a page's header and its scroll view. Scrolling down slides the header off the top;
+/// any scroll up brings it straight back. The header never changes size, so content doesn't jump.
+@MainActor
 final class HeaderState: ObservableObject {
-    @Published var compact = false
+    @Published private(set) var hidden = false
+    @Published var height: CGFloat = 0
     private var lastY: CGFloat = 0
+    private var run: CGFloat = 0          // distance scrolled in the current direction
 
     func scrolled(to y: CGFloat) {
         let dy = y - lastY
         lastY = y
-        if y < 30 { if compact { compact = false }; return }        // near the top: full header
-        if dy > 6, !compact { compact = true }                        // scrolling down
-        else if dy < -10, compact { compact = false }                 // scrolling up a little brings it back
+        if y <= 8 { run = 0; set(false); return }                  // at the top (or pulling to refresh)
+        if dy == 0 { return }
+        if (dy > 0) != (run > 0) { run = 0 }                        // direction changed
+        run += dy
+        if run > 28, y > height { set(true) }
+        else if run < -16 { set(false) }
     }
+
+    private func set(_ h: Bool) { if hidden != h { hidden = h } }
 }
 
 private struct HeaderStateKey: EnvironmentKey { static let defaultValue: HeaderState? = nil }
@@ -123,13 +132,13 @@ extension EnvironmentValues {
     }
 }
 
-/// Put on a page's main ScrollView so the header can shrink while scrolling (iOS 18+; no-op before).
+/// Put on a page's main ScrollView so the header can slide away while scrolling (iOS 18+; no-op before).
 private struct ReportsScroll: ViewModifier {
     @Environment(\.headerState) private var header
     func body(content: Content) -> some View {
         if #available(iOS 18.0, *), let header {
-            content.onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y + $0.contentInsets.top } action: { _, y in
-                withAnimation(.easeInOut(duration: 0.2)) { header.scrolled(to: y) }
+            content.onScrollGeometryChange(for: CGFloat.self) { ($0.contentOffset.y + $0.contentInsets.top).rounded() } action: { _, y in
+                header.scrolled(to: y)
             }
         } else {
             content
@@ -141,49 +150,57 @@ extension View {
     func reportsScrollToHeader() -> some View { modifier(ReportsScroll()) }
 }
 
+private struct HeaderHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
 struct AppHeader: ViewModifier {
     let title: String
     var settings = false
-    /// Extra controls shown under the title inside the same glass bar (e.g. Discover's Videos / Live).
+    /// Extra controls shown under the title inside the header (e.g. Discover's Videos / Live).
     var accessory: AnyView? = nil
     @EnvironmentObject var account: AccountStore
     @EnvironmentObject var library: LibraryStore
     @StateObject private var state = HeaderState()
 
     func body(content: Content) -> some View {
-        let base = content
+        content
             .environment(\.headerState, state)
             .navigationTitle(title)                  // used for the back button on pushed screens
             .toolbar(.hidden, for: .navigationBar)
-        #if compiler(>=6.2)
-        if #available(iOS 26.0, *), library.data.prefs.liquidGlass {
-            // safeAreaBar adds the iOS 26 scroll-edge blur under the header, like Apple's apps.
-            base.safeAreaBar(edge: .top, spacing: 0) { bar }
-        } else {
-            base.safeAreaInset(edge: .top, spacing: 0) { bar.background(Rectangle().fill(.bar).ignoresSafeArea(edges: .top)) }
-        }
-        #else
-        base.safeAreaInset(edge: .top, spacing: 0) { bar.background(Rectangle().fill(.bar).ignoresSafeArea(edges: .top)) }
-        #endif
+            // Reserve the header's height once; it doesn't change while scrolling, so nothing jumps.
+            .safeAreaInset(edge: .top, spacing: 0) { Color.clear.frame(height: state.height) }
+            .overlay(alignment: .top) {
+                bar
+                    .background(GeometryReader { Color.clear.preference(key: HeaderHeightKey.self, value: $0.size.height) })
+                    .background(Rectangle().fill(.bar))
+                    .offset(y: state.hidden ? -(state.height + 2) : 0)
+                    .opacity(state.hidden ? 0 : 1)
+                    .animation(.easeOut(duration: 0.22), value: state.hidden)
+                    .onPreferenceChange(HeaderHeightKey.self) { h in if abs(h - state.height) > 0.5 { state.height = h } }
+            }
+            // Status-bar strip stays put so the header slides under it, like YouTube.
+            .overlay(alignment: .top) {
+                Rectangle().fill(.bar).frame(height: 0).ignoresSafeArea(edges: .top)
+            }
     }
 
-    private var compact: Bool { state.compact }
-
     private var bar: some View {
-        VStack(spacing: compact ? 4 : 6) {
+        VStack(spacing: 6) {
             titleRow
             if let accessory { accessory.padding(.horizontal, 16) }
         }
-        .padding(.bottom, accessory == nil ? 0 : 6)
+        .padding(.bottom, 6)
     }
 
     private var titleRow: some View {
         HStack(alignment: .center, spacing: 8) {
             Text(title)
-                .font(compact ? .headline.weight(.bold) : .title2.weight(.bold))
+                .font(.title2.weight(.bold))
                 .lineLimit(1).minimumScaleFactor(0.7)
             Spacer(minLength: 8)
-            HStack(spacing: compact ? 4 : 6) {
+            HStack(spacing: 6) {
                 if library.data.prefs.showCreateButton { icon(.create, "tab-create", "Create", asset: true) }
                 icon(.inbox, account.hasUnread ? "bell.badge" : "bell", "Notifications", badge: account.hasUnread)
                 icon(.search, "magnifyingglass", "Search")
@@ -192,25 +209,23 @@ struct AppHeader: ViewModifier {
             .glassGroup()
         }
         .padding(.horizontal, 16)
-        .padding(.top, compact ? 0 : 2).padding(.bottom, compact ? 4 : 6)
-        .animation(.easeInOut(duration: 0.2), value: compact)
+        .padding(.top, 2)
     }
 
     private func icon(_ route: AppRoute, _ name: String, _ label: String, badge: Bool = false, asset: Bool = false) -> some View {
         NavigationLink(value: route) {
             Group {
                 if asset {
-                    Image(name).renderingMode(.template).resizable().scaledToFit()
-                        .frame(width: compact ? 15 : 18, height: compact ? 15 : 18)
+                    Image(name).renderingMode(.template).resizable().scaledToFit().frame(width: 18, height: 18)
                 } else {
                     Image(systemName: name)
                         .symbolRenderingMode(badge ? .multicolor : .monochrome)
-                        .font(.system(size: compact ? 13 : 15, weight: .semibold))
+                        .font(.system(size: 15, weight: .semibold))
                 }
             }
-                .frame(width: compact ? 28 : 34, height: compact ? 28 : 34)
-                .contentShape(Circle())
-                .glassCircle()
+            .frame(width: 34, height: 34)
+            .contentShape(Circle())
+            .glassCircle()
         }
         .buttonStyle(.plain)
         .foregroundStyle(Color.accentColor)

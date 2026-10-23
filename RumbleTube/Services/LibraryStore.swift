@@ -28,12 +28,19 @@ final class LibraryStore: ObservableObject {
         saveTask?.cancel()
         saveTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 800_000_000)
-            guard !Task.isCancelled else { return }
-            self?.saveNow()
+            guard !Task.isCancelled, let self else { return }
+            // Encode and write off the main thread: history can be large, and this used to stall scrolling.
+            let snapshot = self.data, url = self.url
+            await Task.detached(priority: .utility) {
+                guard let d = try? JSONEncoder().encode(snapshot) else { return }
+                try? d.write(to: url, options: .atomic)
+            }.value
         }
     }
 
+    /// Immediate save (app going to the background).
     func saveNow() {
+        saveTask?.cancel()
         guard let d = try? JSONEncoder().encode(data) else { return }
         try? d.write(to: url, options: .atomic)
     }

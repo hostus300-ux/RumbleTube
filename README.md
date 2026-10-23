@@ -1,6 +1,6 @@
 # RumbleTube
 
-[**⬇︎ Download the latest IPA**](https://github.com/hostus300-ux/RumbleTube/releases/download/latest/RumbleTube.ipa) · current version 0.12.0
+[**⬇︎ Download the latest IPA**](https://github.com/hostus300-ux/RumbleTube/releases/download/latest/RumbleTube.ipa) · current version 0.13.0
 
 An unofficial iPhone client for Rumble that works like the YouTube app, with **RumbleSkip** (SponsorBlock-style skipping) built in. On your home screen it shows up as **Rumble**.
 
@@ -15,17 +15,17 @@ An unofficial iPhone client for Rumble that works like the YouTube app, with **R
   - A right-hand rail with the creator (tap **+** to follow), like, dislike, comments, save to Watch Later, share, and ⋯ (Not interested, Mute channel, Open in full player).
   - Tap a caption to expand it.
 - **Discover:** swipe between **Videos** and **Live**.
-  - **Trending** (the default): videos from the last 7 days, ranked by views per hour and likes/comments, with older videos sinking as the week goes on. Live streams are ranked by viewers and chat speed. Cards show why, e.g. "↑ 4.1K views/hr".
-  - **For You:** picks based on the channels, topics and categories you watch, worked out on your phone. Nothing is sent anywhere.
-  - **Newest:** newest first.
+  - **Trending**, **Editor Picks**, **Latest**, **Browse** (all categories) and **Featured** channels come straight from rumble.com.
+  - **Popular** is ranked on your phone: videos from the last 7 days by views per hour and likes/comments, and live streams by viewers and chat speed. Cards show why, e.g. "↑ 4.1K views/hr".
+  - **For You** picks videos based on the channels, topics and categories you watch, worked out on your phone. Nothing is sent anywhere.
 - **My Feed:**
   - Your Rumble subscriptions, with channel circles at the top. A red ring means the channel is live (tap to join the stream); a green ring means a recent upload.
   - Filters: All / Today / Live / Videos / Continue Watching.
   - A separate Shorts view for shorts from creators you follow.
-- **Me:** your profile picture is the tab icon. Profile, Your Videos, Following (live channels marked), Earnings, Watch History, Watch Later, Settings and Sign Out.
+- **Me:** your profile picture is the tab icon. Profile, Your Videos, Following (live channels marked), Earnings, Watch History, Watch Later, Downloads, Shop, Settings and Sign Out.
 
 **Everywhere**
-- **+**, the notification bell and search sit in the top-right, on the same line as the page title.
+- **+**, the notification bell and search sit in the top-right, on the same line as the page title. The header slides away while you scroll down and comes back as soon as you scroll up, like YouTube.
   - **+** lets you upload a video or **Go live**. Go live opens the Rumble Studio app if you have it, and its App Store page if you don't. You can hide **+** in Settings.
 - On a cold start, a short launch animation covers loading, and the last Home page you saw appears instantly while a fresh one loads.
 - All / Videos / Live filters on Home, search results and every list.
@@ -66,7 +66,7 @@ An unofficial iPhone client for Rumble that works like the YouTube app, with **R
 - **Timestamps:** tap times like 12:34 in descriptions and comments to jump there. When a description lists 3 or more timestamped lines, they become chapters, with marks on the progress bar and the current chapter name shown.
 - **Audio only:** no video is drawn and picture-in-picture is off. You get artwork plus a Lock Screen / Dynamic Island card with ±10 s and play/pause buttons. It applies to the current video only, unless you turn on "carries over" in Settings.
 - **Autoplay:** when a video ends, the next recommendation plays after an 8-second countdown with Cancel and Play now. "Up next" is always shown under the video. Toggle it there or in Settings.
-- **Comments** are a tab inside the player (Details · Comments, plus Live chat on streams).
+- **Player layout:** live streams show the chat under the video, with a slim title strip you can tap for details. Videos (and finished streams) show details; the Comments button swaps in the comments until you close them.
 - **Start pages:** in Settings, choose what Home, Discover and My Feed open on.
 - **Watch history** is a single list, synced from your Rumble Watch History and Continue Watching, including how far you got in each video.
 - **Widgets:** "Live now" from channels you follow, and "Continue watching". While you watch a live stream, a Lock Screen and Dynamic Island card shows the viewer count and how far behind live you are.
