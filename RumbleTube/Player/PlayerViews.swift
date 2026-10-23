@@ -175,7 +175,8 @@ struct PlayerScreen: View {
                     }
                 }
                 Spacer(minLength: 4)
-                Image(systemName: "chevron.down").font(.caption.weight(.bold)).foregroundStyle(.secondary)
+                // Opens the details panel (a sheet that comes up), so an info icon, not an arrow.
+                Image(systemName: "info.circle").font(.title3).foregroundStyle(.secondary)
             }
             .padding(.horizontal, 14).padding(.vertical, 8)
             .contentShape(Rectangle())
