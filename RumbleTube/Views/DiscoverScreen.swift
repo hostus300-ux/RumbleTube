@@ -202,8 +202,9 @@ enum DiscoverSection: String, CaseIterable, Identifiable {
     case latest = "Latest", browse = "Browse", featured = "Featured", newest = "Newest"
     var id: String { rawValue }
 
-    static let videoSections: [DiscoverSection] = [.trending, .popular, .forYou, .editorPicks, .latest, .browse, .featured]
-    static let liveSections: [DiscoverSection] = [.popular, .forYou, .newest]
+    static let videoSections: [DiscoverSection] = [.trending, .popular, .forYou, .editorPicks, .latest]
+    /// Browse (categories) and Featured channels are mostly about live streams, so they live on the Live page.
+    static let liveSections: [DiscoverSection] = [.trending, .popular, .forYou, .editorPicks, .latest, .browse, .featured]
 
     var icon: String {
         switch self {
@@ -339,7 +340,8 @@ private struct DiscoverFeed: View {
         if let sort = section.ranked {
             rankedList(model.list(page, sort))
         } else if let feed = site.listing(section) {
-            SiteListing(model: feed)
+            // rumble.com's lists mix uploads and streams: each page shows only its own kind.
+            SiteListing(model: feed, live: page == .live)
         } else if section == .browse {
             browseGrid
         } else if section == .featured {
@@ -471,19 +473,32 @@ private struct DiscoverFeed: View {
 /// A rumble.com list (Trending, Editor Picks, Latest) with paging as you reach the end.
 private struct SiteListing: View {
     @ObservedObject var model: ListingModel
+    /// true: only live streams; false: only uploads (no live or upcoming).
+    let live: Bool
     @EnvironmentObject var player: PlayerModel
 
+    private var shown: [VideoItem] {
+        model.items.filter { live ? $0.isLive : (!$0.isLive && $0.upcoming != true) }
+    }
+
     var body: some View {
+        let items = shown
         CardGrid {
-            ForEach(model.items) { v in
+            ForEach(items) { v in
                 Button { player.play(v) } label: { VideoCard(item: v) }
                     .buttonStyle(.plain)
-                    .onAppear { if v.id == model.items.last?.id { Task { await model.loadMore() } } }
+                    .onAppear { if v.id == items.last?.id { Task { await model.loadMore() } } }
             }
         }
-        if model.items.isEmpty {
+        // Few matches on the pages loaded so far (e.g. streams in Latest): fetch more pages, within reason.
+        .task(id: model.items.count) {
+            if items.count < 8, model.hasNext, model.loadedOnce, !model.loading, model.items.count < 240 {
+                await model.loadMore()
+            }
+        }
+        if items.isEmpty {
             VStack(spacing: 10) {
-                if model.loading || !model.loadedOnce { ProgressView() }
+                if model.loading || !model.loadedOnce || (model.hasNext && model.items.count < 240) { ProgressView() }
                 else if let e = model.error {
                     Text(e).font(.footnote).foregroundStyle(.secondary)
                     Button("Try again") { Task { await model.reload() } }.buttonStyle(.bordered)

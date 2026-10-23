@@ -1,33 +1,36 @@
 import SwiftUI
+import UserNotifications
 import WebKit
 
 // MARK: - Sign in (Rumble's own page; we never see the password)
 
+/// Page-load state for the sign-in screen, kept separate so the web view itself isn't redrawn as it loads.
+@MainActor
+final class LoginPageState: ObservableObject {
+    @Published var progress: Double = 0
+    @Published var host = "rumble.com"
+    @Published var firstPageLoaded = false
+}
+
 struct LoginView: View {
     @EnvironmentObject var account: AccountStore
     @Environment(\.dismiss) private var dismiss
+    @StateObject private var page = LoginPageState()
     @State private var checking = false
-    @State private var progress: Double = 0
-    @State private var pageReady = false
     @State private var success = false
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                header
+                LoginHeader(page: page)
                 ZStack {
-                    LoginWebView(onNavigate: handle, onProgress: { p in
-                        progress = p
-                        if p > 0.6, !pageReady { withAnimation(.easeOut(duration: 0.25)) { pageReady = true } }
-                    })
-                    .opacity(pageReady && !success ? 1 : 0)
-                    if !pageReady && !success {
-                        VStack(spacing: 12) {
-                            ProgressView()
-                            Text("Opening Rumble sign-in…").font(.footnote).foregroundStyle(.secondary)
-                        }
+                    LoginWebView(page: page, onNavigate: handle)
+                    if !page.firstPageLoaded && !success {
+                        Color(.systemBackground)
+                        ProgressView()
                     }
                     if success {
+                        Color(.systemBackground)
                         VStack(spacing: 12) {
                             Image(systemName: "checkmark.circle.fill").font(.system(size: 56)).foregroundStyle(Color.rumbleGreen)
                                 .transition(.scale.combined(with: .opacity))
@@ -41,6 +44,7 @@ struct LoginView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .background(Color(.systemBackground))
+            .navigationTitle("Sign in to Rumble")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
@@ -49,30 +53,17 @@ struct LoginView: View {
         .interactiveDismissDisabled(checking)
     }
 
-    /// Native top: the app mark, what's happening, and proof you're on Rumble's real site.
-    private var header: some View {
-        VStack(spacing: 10) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color(hex: 0x85C742)).frame(width: 56, height: 42)
-                HStack(spacing: 3) {
-                    Image(systemName: "play.fill").font(.system(size: 18, weight: .black))
-                    RoundedRectangle(cornerRadius: 1.5).frame(width: 3.5, height: 19)
-                }
-                .foregroundStyle(Color(hex: 0x13200B))
-            }
-            Text("Sign in to Rumble").font(.title3.weight(.bold))
-            Text("Your password goes straight to Rumble. RumbleTube only keeps the sign-in so it can load your feed.")
-                .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.horizontal, 24)
-            Label("rumble.com", systemImage: "lock.fill")
-                .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                .padding(.horizontal, 10).padding(.vertical, 4)
-                .background(Color.secondary.opacity(0.12), in: Capsule())
-            ProgressView(value: progress)
-                .tint(Color.rumbleGreen)
-                .opacity(progress > 0 && progress < 1 ? 1 : 0)
-                .animation(.easeOut(duration: 0.2), value: progress)
-        }
-        .padding(.top, 4)
+    /// After the first sign-in, ask once to turn on reply and went-live alerts (on by default if you allow them).
+    @MainActor static func offerNotifications(_ account: AccountStore) async {
+        let key = "askedAlertsAfterSignIn"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        UserDefaults.standard.set(true, forKey: key)
+        try? await Task.sleep(nanoseconds: 600_000_000)   // let the sign-in sheet finish closing
+        let granted = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound])) ?? false
+        guard granted else { return }
+        account.alertsEnabled = true
+        await account.setLiveAlerts(true)
+        AccountStore.scheduleRefresh()
     }
 
     private func handle(_ url: URL) {
@@ -92,16 +83,47 @@ struct LoginView: View {
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) { success = true }
                 try? await Task.sleep(nanoseconds: 900_000_000)
                 dismiss()
+                await Self.offerNotifications(account)
             }
         }
     }
 }
 
-struct LoginWebView: UIViewRepresentable {
-    var onNavigate: (URL) -> Void
-    var onProgress: (Double) -> Void = { _ in }
+/// One slim strip under the title: the page you're really on (with a lock), what happens with your password,
+/// and a thin load bar. It never pushes the form around.
+private struct LoginHeader: View {
+    @ObservedObject var page: LoginPageState
 
-    func makeCoordinator() -> Coordinator { Coordinator(onNavigate: onNavigate, onProgress: onProgress) }
+    var body: some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 8) {
+                Label(page.host, systemImage: "lock.fill")
+                    .font(.caption.weight(.semibold)).foregroundStyle(.secondary).lineLimit(1)
+                    .padding(.horizontal, 10).padding(.vertical, 4)
+                    .background(Color.secondary.opacity(0.12), in: Capsule())
+                Text("Your password goes only to Rumble.").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            .padding(.horizontal, 16)
+            ZStack(alignment: .leading) {
+                Rectangle().fill(Color.clear)
+                GeometryReader { g in
+                    Rectangle().fill(Color.rumbleGreen)
+                        .frame(width: g.size.width * page.progress)
+                        .opacity(page.progress > 0 && page.progress < 1 ? 1 : 0)
+                        .animation(.easeOut(duration: 0.2), value: page.progress)
+                }
+            }
+            .frame(height: 2)
+        }
+        .padding(.top, 2)
+    }
+}
+
+struct LoginWebView: UIViewRepresentable {
+    let page: LoginPageState
+    var onNavigate: (URL) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(page: page, onNavigate: onNavigate) }
 
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
@@ -112,9 +134,9 @@ struct LoginWebView: UIViewRepresentable {
                                                                  injectionTime: .atDocumentStart, forMainFrameOnly: true))
         let web = WKWebView(frame: .zero, configuration: config)
         web.customUserAgent = RumbleHTTP.userAgent
-        web.isOpaque = false
-        web.backgroundColor = .clear
-        web.scrollView.backgroundColor = .clear
+        web.backgroundColor = .systemBackground
+        web.scrollView.backgroundColor = .systemBackground
+        web.scrollView.contentInsetAdjustmentBehavior = .never
         web.navigationDelegate = context.coordinator
         web.uiDelegate = context.coordinator
         context.coordinator.observe(web)
@@ -127,7 +149,8 @@ struct LoginWebView: UIViewRepresentable {
     /// On Rumble's sign-in pages, hide the site's own header, menu and footer so only the form shows.
     static let focusScript = """
     (function () {
-      if (!/login|register|auth|password|sso/i.test(location.pathname + location.host)) return;
+      // Only Rumble's own sign-in pages (never Apple's or Google's).
+      if (!/(^|\\.)rumble\\.com$/i.test(location.host) || !/login|register|auth|password|sso/i.test(location.pathname + location.host)) return;
       function tidy() {
         var sel = 'header, footer, .header, .footer, .main-menu, [data-js=main_menu], .header-div, .sidebar, .app-banner, .smart-banner';
         document.querySelectorAll(sel).forEach(function (el) {
@@ -181,23 +204,36 @@ struct LoginWebView: UIViewRepresentable {
     })();
     """
 
+    @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
+        let page: LoginPageState
         let onNavigate: (URL) -> Void
-        let onProgress: (Double) -> Void
-        private var progressObs: NSKeyValueObservation?
-        init(onNavigate: @escaping (URL) -> Void, onProgress: @escaping (Double) -> Void) {
-            self.onNavigate = onNavigate; self.onProgress = onProgress
+        private var observations: [NSKeyValueObservation] = []
+        init(page: LoginPageState, onNavigate: @escaping (URL) -> Void) {
+            self.page = page; self.onNavigate = onNavigate
         }
 
         func observe(_ web: WKWebView) {
-            progressObs = web.observe(\.estimatedProgress, options: [.new]) { [weak self] w, _ in
-                let p = w.estimatedProgress
-                DispatchQueue.main.async { self?.onProgress(p) }
-            }
+            observations = [
+                web.observe(\.estimatedProgress, options: [.new]) { [weak self] w, _ in
+                    let p = (w.estimatedProgress * 20).rounded() / 20      // 5% steps: fewer redraws
+                    Task { @MainActor in if let s = self, s.page.progress != p { s.page.progress = p } }
+                },
+                web.observe(\.url, options: [.new]) { [weak self] w, _ in
+                    guard let h = w.url?.host else { return }
+                    let host = h.hasPrefix("www.") ? String(h.dropFirst(4)) : h
+                    Task { @MainActor in if let s = self, s.page.host != host { s.page.host = host } }
+                },
+            ]
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            if !page.firstPageLoaded { page.firstPageLoaded = true }
             if let url = webView.url { onNavigate(url) }
+        }
+
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            if !page.firstPageLoaded { page.firstPageLoaded = true }
         }
 
         // "Sign in with Apple/Google" pop-ups: open them in the same view.

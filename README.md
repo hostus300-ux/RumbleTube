@@ -1,6 +1,6 @@
 # RumbleTube
 
-[**⬇︎ Download the latest IPA**](https://github.com/hostus300-ux/RumbleTube/releases/download/latest/RumbleTube.ipa) · current version 0.13.0
+[**⬇︎ Download the latest IPA**](https://github.com/hostus300-ux/RumbleTube/releases/download/latest/RumbleTube.ipa) · current version 0.13.1
 
 An unofficial iPhone client for Rumble that works like the YouTube app, with **RumbleSkip** (SponsorBlock-style skipping) built in. On your home screen it shows up as **Rumble**.
 
@@ -15,7 +15,7 @@ An unofficial iPhone client for Rumble that works like the YouTube app, with **R
   - A right-hand rail with the creator (tap **+** to follow), like, dislike, comments, save to Watch Later, share, and ⋯ (Not interested, Mute channel, Open in full player).
   - Tap a caption to expand it.
 - **Discover:** swipe between **Videos** and **Live**.
-  - **Trending**, **Editor Picks**, **Latest**, **Browse** (all categories) and **Featured** channels come straight from rumble.com.
+  - **Trending**, **Editor Picks** and **Latest** come straight from rumble.com, with uploads on the Videos page and streams on the Live page. The Live page also has **Browse** (all categories) and **Featured** channels.
   - **Popular** is ranked on your phone: videos from the last 7 days by views per hour and likes/comments, and live streams by viewers and chat speed. Cards show why, e.g. "↑ 4.1K views/hr".
   - **For You** picks videos based on the channels, topics and categories you watch, worked out on your phone. Nothing is sent anywhere.
 - **My Feed:**
@@ -32,7 +32,7 @@ An unofficial iPhone client for Rumble that works like the YouTube app, with **R
 - Search shows matching channels and videos, sorted by relevance, newest or most viewed. You can also paste any rumble.com link.
 - Thumbnails show how far you've watched, from this phone or from Rumble, and finished videos get a "Watched" badge.
 
-**Rumble account** (you sign in on Rumble's own page; the app never sees your password)
+**Rumble account** (you sign in on Rumble's own page; the app never sees your password). After your first sign-in the app asks once to turn on reply and went-live alerts.
 - **Notifications:** tapping a reply jumps straight to that comment, already expanded, so you can answer it. Optional reply alerts.
 - **Comments:** read, like, reply and delete your own.
 - **Following:** Follow / Unfollow syncs with your Rumble account.

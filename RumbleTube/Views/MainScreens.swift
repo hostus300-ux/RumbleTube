@@ -215,7 +215,8 @@ struct HomeScreen: View {
                         FilterChips(filter: $filter)
                         if let pills = model.page?.pills, !pills.isEmpty {
                             Divider().frame(height: 22)
-                            ForEach(pills) { p in
+                            // Rumble's own "Live" pill duplicates the Live filter, so it's left out.
+                            ForEach(pills.filter { $0.title.caseInsensitiveCompare("Live") != .orderedSame }) { p in
                                 if let row = model.page?.rows.first(where: { $0.id == p.id }), let path = row.feedPath {
                                     NavigationLink(value: AppRoute.listing(title: p.title, path: path)) { Chip(title: p.title) }
                                         .buttonStyle(.plain)

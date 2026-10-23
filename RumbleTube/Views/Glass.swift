@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // MARK: - Liquid Glass (iOS 26) with graceful fallback
 //
@@ -174,16 +175,26 @@ struct AppHeader: ViewModifier {
             .overlay(alignment: .top) {
                 bar
                     .background(GeometryReader { Color.clear.preference(key: HeaderHeightKey.self, value: $0.size.height) })
-                    .background(Rectangle().fill(.bar))
+                    .background(Color(.systemBackground))
                     .offset(y: state.hidden ? -(state.height + 2) : 0)
                     .opacity(state.hidden ? 0 : 1)
                     .animation(.easeOut(duration: 0.22), value: state.hidden)
                     .onPreferenceChange(HeaderHeightKey.self) { h in if abs(h - state.height) > 0.5 { state.height = h } }
             }
-            // Status-bar strip stays put so the header slides under it, like YouTube.
+            // Solid strip behind the status bar, so scrolled content never shows through it
+            // and the header slides away underneath it (like YouTube).
             .overlay(alignment: .top) {
-                Rectangle().fill(.bar).frame(height: 0).ignoresSafeArea(edges: .top)
+                let top = Self.statusBarHeight
+                Color(.systemBackground)
+                    .frame(height: top)
+                    .offset(y: -top)
+                    .allowsHitTesting(false)
             }
+    }
+
+    private static var statusBarHeight: CGFloat {
+        let window = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first
+        return window?.safeAreaInsets.top ?? 0
     }
 
     private var bar: some View {
