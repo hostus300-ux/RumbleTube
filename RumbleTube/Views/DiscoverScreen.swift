@@ -498,10 +498,11 @@ private struct SiteListing: View {
         }
         if items.isEmpty {
             VStack(spacing: 10) {
-                if model.loading || !model.loadedOnce || (model.hasNext && model.items.count < 240) { ProgressView() }
-                else if let e = model.error {
+                if let e = model.error, !model.loading {
                     Text(e).font(.footnote).foregroundStyle(.secondary)
                     Button("Try again") { Task { await model.reload() } }.buttonStyle(.bordered)
+                } else if model.loading || !model.loadedOnce || (model.hasNext && model.items.count < 240) {
+                    ProgressView()
                 } else {
                     Text("Nothing here right now.").foregroundStyle(.secondary)
                 }
