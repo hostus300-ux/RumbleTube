@@ -544,7 +544,7 @@ struct ShortPage: View {
         let following = library.data.isFollowing(c.path)
         return ZStack(alignment: .bottom) {
             Button { router.open(c) } label: {
-                ChannelAvatar(name: c.name, url: c.avatar, size: 46)
+                ChannelAvatar(name: c.name, url: c.avatar, size: 46, path: c.path)
                     .overlay(Circle().stroke(.white, lineWidth: 1.5))
             }
             if !following {

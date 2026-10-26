@@ -46,6 +46,7 @@ enum RumbleJSON {
         item.likes = int(votes?["num_votes_up"])
         item.dislikes = int(votes?["num_votes_down"])
         item.commentCount = int((v["comments"] as? [String: Any])?["count"])
+        if let vb = by?["verified_badge"] as? Bool { item.channelVerified = vb }
         return item.title.isEmpty ? nil : item
     }
 
@@ -144,8 +145,15 @@ enum ListingParser {
             items += RumbleJSON.videos(json["items"])
         }
         // 2. Server-rendered cards: .videostream (editor picks, live, categories, channels) and article.video-item (search)
+        let byAvatars = CardAvatarCSS.map(html)
         for el in try doc.select(".videostream, article.video-item").array() {
-            if let v = try card(el) { items.append(v) }
+            if var v = try card(el) {
+                if v.channelAvatar == nil, let a = try el.select("a.video-item--by-a, a[rel=author]").first(),
+                   let key = try a.className().components(separatedBy: " ").first(where: { $0.hasPrefix("video-item--by-a--") }) {
+                    v.channelAvatar = byAvatars[String(key.dropFirst("video-item--by-a--".count))]
+                }
+                items.append(v)
+            }
         }
 
         var seen = Set<String>()
@@ -210,6 +218,7 @@ enum ListingParser {
         }
         item.watching = watching
         if let vid = try? c.attr("data-video-id"), !vid.isEmpty { item.numericID = vid }
+        if try !c.select(".verification-badge-icon, .video-item--by-verified").isEmpty() { item.channelVerified = true }
         return item
     }
 
@@ -232,6 +241,10 @@ enum ListingParser {
         let text = try head?.text() ?? ""
         let followers = text.range(of: #"[\d.,]+\s*[KMB]?(?=\s+Followers)"#, options: .regularExpression).map { String(text[$0]).replacingOccurrences(of: " ", with: "") }
         var header = ChannelHeader(path: path, name: name, avatar: avatar, banner: banner, followers: followers)
+        header.verified = try !(head ?? doc).select(".verification-badge-icon").isEmpty()
+        let html = try doc.outerHtml()
+        header.joinable = CreatorExtras.joinable(html)
+        header.tipID = CreatorExtras.tipID(html)
         if let f = try doc.select(".followed-channel[data-id]").first() {
             header.rumbleID = try f.attr("data-id")
             header.rumbleType = try f.attr("data-type")
@@ -480,6 +493,23 @@ enum FeaturedChannelsParser {
                                     avatar: avatar, viewers: (viewers?.isEmpty ?? true) ? nil : viewers)
             guard seen.insert(f.id).inserted else { continue }
             out.append(f)
+        }
+        return out
+    }
+}
+
+
+/// Search / Trending cards draw the channel picture with CSS:
+/// `.video-item--by-a--c123::before { background-image: url("...") }`.
+enum CardAvatarCSS {
+    static func map(_ html: String) -> [String: String] {
+        var out: [String: String] = [:]
+        let pattern = #"video-item--by-a--([A-Za-z0-9]+)::before\s*\{\s*background-image:\s*url\(([^)]+)\)"#
+        guard let re = try? NSRegularExpression(pattern: pattern) else { return [:] }
+        let ns = html as NSString
+        for m in re.matches(in: html, range: NSRange(location: 0, length: ns.length)) {
+            out[ns.substring(with: m.range(at: 1))] = ns.substring(with: m.range(at: 2))
+                .trimmingCharacters(in: CharacterSet(charactersIn: "'\" "))
         }
         return out
     }

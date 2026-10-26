@@ -315,7 +315,7 @@ struct InboxView: View {
                         }
                     }
                 }
-                .refreshable { await account.loadNotifications() }
+                .pullToRefresh { await account.loadNotifications() }
                 .task { await account.loadNotifications() }
             }
         }
@@ -418,6 +418,17 @@ final class CommentsModel: ObservableObject {
         }
     }
 
+    /// Show a comment as deleted right away (Rumble keeps it as "[deleted]" so replies stay threaded).
+    func markDeleted(_ id: String) {
+        guard var p = page else { return }
+        func fix(_ c: inout RumbleComment) {
+            if c.id == id { c.text = "[deleted]"; c.actions.removeAll { $0 == "delete" }; return }
+            for i in c.replies.indices { fix(&c.replies[i]) }
+        }
+        for i in p.comments.indices { fix(&p.comments[i]) }
+        page = p
+    }
+
     func adjust(_ id: String, up: Int, down: Int) {
         guard var p = page else { return }
         func fix(_ c: inout RumbleComment) {
@@ -499,7 +510,7 @@ struct CommentsScreen: View {
                 }
             }
             .listStyle(.insetGrouped)
-            .refreshable { await model.load() }
+            .pullToRefresh { await model.load() }
             .task {
                 if model.page == nil {
                     await model.load()
@@ -586,6 +597,19 @@ struct CommentsScreen: View {
                     .font(.caption)
                 }
                 HStack(alignment: .bottom, spacing: 8) {
+                    // Insert the video's current position, e.g. "12:34 ", so the comment can point at a moment.
+                    if player.item?.id == target.video.id, !player.isLive {
+                        Button {
+                            let stamp = TimeFormat.clock(player.currentTime)
+                            let sep = draft.isEmpty || draft.hasSuffix(" ") || draft.hasSuffix("\n") ? "" : " "
+                            draft += sep + stamp + " "
+                            composerFocused = true
+                        } label: {
+                            Image(systemName: "clock.badge").font(.system(size: 20))
+                                .frame(width: 34, height: 36)
+                        }
+                        .accessibilityLabel("Add timestamp")
+                    }
                     TextField(replyTo == nil ? "Add a comment…" : "Write a reply…", text: $draft, axis: .vertical)
                         .lineLimit(1...5)
                         .focused($composerFocused)
@@ -641,8 +665,21 @@ struct CommentsScreen: View {
     }
 
     private func delete(_ c: RumbleComment) async {
-        do { try await account.delete(commentID: c.id); show("Deleted"); await model.load() }
-        catch { show(error.localizedDescription) }
+        do {
+            try await account.delete(commentID: c.id)
+            model.markDeleted(c.id)
+            // Check with Rumble that it's really gone (it answers OK even when it ignored the request).
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            await model.load()
+            if let still = model.page?.comment(c.id), still.text == c.text {
+                show("Rumble didn't delete it. Try again in a moment.")
+            } else {
+                model.markDeleted(c.id)
+                show("Deleted")
+            }
+        } catch {
+            show(error.localizedDescription)
+        }
     }
 
     private func show(_ s: String) {
@@ -702,7 +739,8 @@ struct CommentRow: View {
                     if comment.pinned { Image(systemName: "pin.fill").font(.caption2).foregroundStyle(.secondary) }
                     Text("· \(comment.timeText)").font(.caption).foregroundStyle(.secondary)
                 }
-                Text(SeekLinks.attributed(comment.text)).font(.subheadline).textSelection(.enabled)
+                // No text selection here: it swallows taps on timestamp links.
+                Text(SeekLinks.attributed(comment.text)).font(.subheadline)
                 HStack(spacing: 18) {
                     Button { onVote(1) } label: {
                         Label("\(comment.upVotes)", systemImage: myVote == 1 ? "hand.thumbsup.fill" : "hand.thumbsup")

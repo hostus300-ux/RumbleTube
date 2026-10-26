@@ -5,6 +5,9 @@ enum RumbleHTTP {
 
     static let session: URLSession = {
         let c = URLSessionConfiguration.default
+        // Always ask Rumble: a cached page made pull-to-refresh look like it did nothing.
+        c.requestCachePolicy = .reloadIgnoringLocalCacheData
+        c.urlCache = nil
         c.httpAdditionalHeaders = ["User-Agent": userAgent, "Accept-Language": "en-US,en;q=0.9"]
         c.timeoutIntervalForRequest = 15
         return URLSession(configuration: c)

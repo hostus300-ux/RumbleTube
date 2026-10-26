@@ -107,7 +107,7 @@ struct RootView: View {
         }
         .environmentObject(shorts)
         .miniPlayerAccessory(enabled: useAccessory && player.item != nil && !player.expanded && router.tab != .shorts)
-        .minimizingTabBar(prefs.minimizeTabBar)
+        .modifier(TabBarMinimizer(enabled: prefs.minimizeTabBar))
         .overlay {
             if !splashGone {
                 SplashView(reveal: gate.ready)
@@ -136,9 +136,11 @@ struct RootView: View {
         .onChange(of: router.tab) { t in updateShorts(tab: t, expanded: player.expanded, minimizing: false) }
         .onChange(of: player.expanded) { e in updateShorts(tab: router.tab, expanded: e, minimizing: !e) }
         .muteSheetHost(active: !player.expanded)
+        .tagSheetHost(active: !player.expanded)
         .sheet(isPresented: $player.expanded) {
             PlayerScreen()
                 .muteSheetHost(active: true)
+                .tagSheetHost(active: true)
                 .environmentObject(player)
                 .environmentObject(library)
                 .environmentObject(router)
@@ -204,5 +206,16 @@ struct RootView: View {
             }
         }
         .tag(t)
+    }
+}
+
+
+/// Shrinks the tab bar while scrolling down and switches shrinking off on a scroll up, which makes
+/// iOS bring the full tab bar straight back.
+private struct TabBarMinimizer: ViewModifier {
+    let enabled: Bool
+    @ObservedObject private var state = TabBarState.shared
+    func body(content: Content) -> some View {
+        content.minimizingTabBar(enabled && !state.keepExpanded)
     }
 }

@@ -6,11 +6,13 @@ import WebKit
 struct RumbleWebSheet: View {
     let title: String
     let url: URL
+    /// JavaScript to run once the page has loaded (e.g. open the page's Join panel).
+    var script: String? = nil
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
-            RumbleWebView(url: url)
+            RumbleWebView(url: url, script: script)
                 .ignoresSafeArea(edges: .bottom)
                 .navigationTitle(title)
                 .navigationBarTitleDisplayMode(.inline)
@@ -21,6 +23,7 @@ struct RumbleWebSheet: View {
 
 struct RumbleWebView: UIViewRepresentable {
     let url: URL
+    var script: String? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -32,6 +35,11 @@ struct RumbleWebView: UIViewRepresentable {
         web.customUserAgent = RumbleHTTP.userAgent
         web.uiDelegate = context.coordinator
         web.allowsBackForwardNavigationGestures = true
+        if let script {
+            // Give the page's own scripts a moment to wire up their buttons first.
+            let delayed = "setTimeout(function(){ try { \(script) } catch (e) {} }, 900);"
+            config.userContentController.addUserScript(WKUserScript(source: delayed, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
+        }
         web.load(URLRequest(url: url))
         return web
     }
@@ -182,7 +190,7 @@ struct GiftSubsSheet: View {
                 VStack(alignment: .leading, spacing: 16) {
                     if let c = channel {
                         HStack(spacing: 14) {
-                            ChannelAvatar(name: c.name, url: c.avatar, size: 60)
+                            ChannelAvatar(name: c.name, url: c.avatar, size: 60, path: c.path)
                             Text(c.name).font(.title2.weight(.bold)).lineLimit(2)
                         }
                         Divider()

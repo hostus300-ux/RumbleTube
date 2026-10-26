@@ -128,6 +128,10 @@ final class AccountStore: ObservableObject {
             if !feed.loggedIn { loggedIn = false; return }
             notifications = feed.items
             hasUnread = false
+            // Seen here, so a later background check won't alert about them.
+            var seen = Set(UserDefaults.standard.stringArray(forKey: Self.notifiedKey) ?? [])
+            for n in feed.items { seen.insert(n.id) }
+            UserDefaults.standard.set(Array(seen.suffix(300)), forKey: Self.notifiedKey)
             notificationsError = nil
             UIApplication.shared.applicationIconBadgeNumber = 0
         } catch {
@@ -218,7 +222,7 @@ final class AccountStore: ObservableObject {
 
     static func scheduleRefresh() {
         let req = BGAppRefreshTaskRequest(identifier: refreshTaskID)
-        req.earliestBeginDate = Date(timeIntervalSinceNow: 20 * 60)
+        req.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)   // iOS treats this as "no sooner than"
         try? BGTaskScheduler.shared.submit(req)
     }
 
@@ -259,18 +263,38 @@ final class AccountStore: ObservableObject {
 
     /// Called from the background refresh task.
     func backgroundCheck() async {
-        let wasUnread = hasUnread
         await refreshStatus()
-        if hasUnread && !wasUnread && alertsEnabled, await hasUnreadFromUnmuted() {
-            let content = UNMutableNotificationContent()
-            content.title = "Rumble"
-            content.body = "You have new notifications — tap to see who replied."
-            content.sound = .default
-            content.userInfo = ["open": "inbox"]
-            try? await UNUserNotificationCenter.current().add(
-                UNNotificationRequest(identifier: "rumble-unread", content: content, trigger: nil))
-        }
+        if alertsEnabled && hasUnread { await alertNewNotifications() }
         await checkLive()
         if alertsEnabled || LibraryStore.shared.data.prefs.liveAlerts { Self.scheduleRefresh() }
+    }
+
+    private static let notifiedKey = "notifiedNotificationIDs"
+
+    /// One alert per new unread notification (who replied and what they said), skipping muted users and
+    /// anything already alerted. Works whenever iOS lets the app check in the background.
+    private func alertNewNotifications() async {
+        guard let res = try? await send(AccountRequests.notifications()), res.1 == 200,
+              let feed = try? NotificationParser.parse(res.0), feed.loggedIn else { return }
+        var notified = Set(UserDefaults.standard.stringArray(forKey: Self.notifiedKey) ?? [])
+        let first = notified.isEmpty
+        let lib = LibraryStore.shared.data
+        let fresh = feed.items.filter { !$0.read && !notified.contains($0.id)
+            && lib.muteEntry(path: $0.actorPath, name: $0.actorName) == nil }
+        // First run only records what's there, so you don't get a burst of old notifications.
+        if !first {
+            for n in fresh.prefix(4) {
+                let content = UNMutableNotificationContent()
+                content.title = n.actorName.map { "\($0)" } ?? "Rumble"
+                content.body = n.body.isEmpty ? "New notification" : n.body
+                content.sound = .default
+                content.threadIdentifier = "replies"
+                content.userInfo = ["open": "inbox"]
+                try? await UNUserNotificationCenter.current().add(
+                    UNNotificationRequest(identifier: "rumble-\(n.id)", content: content, trigger: nil))
+            }
+        }
+        for n in feed.items { notified.insert(n.id) }
+        UserDefaults.standard.set(Array(notified.suffix(300)), forKey: Self.notifiedKey)
     }
 }

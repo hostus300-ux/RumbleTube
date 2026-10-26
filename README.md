@@ -1,6 +1,6 @@
 # RumbleTube
 
-[**⬇︎ Download the latest IPA**](https://github.com/hostus300-ux/RumbleTube/releases/download/latest/RumbleTube.ipa) · current version 0.13.1
+[**⬇︎ Download the latest IPA**](https://github.com/hostus300-ux/RumbleTube/releases/download/latest/RumbleTube.ipa) · current version 0.14.0
 
 An unofficial iPhone client for Rumble that works like the YouTube app, with **RumbleSkip** (SponsorBlock-style skipping) built in. On your home screen it shows up as **Rumble**.
 
@@ -58,7 +58,7 @@ An unofficial iPhone client for Rumble that works like the YouTube app, with **R
 - **Automatic YouTube matching:** finds the same video on YouTube and uses its SponsorBlock segments.
   - If the lengths match, it skips automatically.
   - If it's a different edit, it shows buttons instead of skipping on its own.
-- Mark your own segments, vote on them, or keep them on your device only. Works with the RumbleSkip browser extension's community server.
+- Mark your own segments, vote on them, or keep them on your device only. Save just the start, keep watching, then tap **Mark end** on the video when the segment is over. Works with the RumbleSkip browser extension's community server.
 
 **Offline, alerts and extras**
 - **Downloads:** save videos as MP4 to watch offline. Use the Download button under a video, or long-press any video. You can manage them, and pick the quality, in Account → Downloads.
@@ -71,6 +71,11 @@ An unofficial iPhone client for Rumble that works like the YouTube app, with **R
 - **Watch history** is a single list, synced from your Rumble Watch History and Continue Watching, including how far you got in each video.
 - **Widgets:** "Live now" from channels you follow, and "Continue watching". While you watch a live stream, a Lock Screen and Dynamic Island card shows the viewer count and how far behind live you are.
 - **Mute channels and users:** long-press a video (or use ⋯ on a channel page or comment) and add an optional short tag like "Content spam". Their videos still appear, shrunk with a blurred thumbnail and your tag as a badge; their comments are collapsed the same way. Tap **Show anyway** to see one. Replies from muted users don't show in Notifications or trigger alerts. Manage the list in Settings → Muted channels & users.
+- **Channel tags:** tag any channel ("Politics", "Gaming") with a colour. Its videos get a coloured badge, and each tag becomes a tab in My Feed listing the channels you follow that have it.
+- **Creators:** verified checks next to names, and **Join** and **Tip** (the Rumble Wallet QR code) when the creator has them set up. Public dislike counts sit next to likes.
+- **Comments:** a clock button in the comment box inserts the video's current time; tap any timestamp in a comment to jump there.
+- **Mini player:** shows the live video and "1:23 / 10:05". Hold it for picture-in-picture, and swipe it right to slide it away.
+- **App icon:** pick from built-in icons in Settings → RumbleTube → Look → App icon (or make a Home Screen shortcut with your own picture).
 - **Search history and suggestions,** including matching channels you follow.
 - **iPad:** a grid layout, with the video and live chat side by side.
 - **Rumble Watch Later:** your Rumble Watch Later list appears next to the phone's own list.

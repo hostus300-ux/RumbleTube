@@ -28,7 +28,19 @@ final class DiscoverModel: ObservableObject {
 
     func list(_ page: Page, _ sort: Sort) -> [RankedVideo] { (page == .videos ? videos : live)[sort] ?? [] }
 
+    private var running: Task<Void, Never>?
+
+    /// Runs on its own task: switching chips or pages no longer cancels a half-finished load
+    /// (which used to leave Discover empty until the next 15-minute refresh).
     func refresh(force: Bool = false) async {
+        if let r = running { await r.value; return }
+        let t = Task { @MainActor in await self.build(force: force) }
+        running = t
+        await t.value
+        running = nil
+    }
+
+    private func build(force: Bool) async {
         if loading { return }
         if !force, let b = builtAt, Date().timeIntervalSince(b) < 15 * 60 { return }
         loading = true
@@ -259,16 +271,25 @@ final class DiscoverSiteFeeds: ObservableObject {
 
     func loadBrowse(force: Bool = false) async {
         guard force || categories.isEmpty, !loading else { return }
-        loading = true; defer { loading = false }
-        do { categories = try await RumbleService.shared.browse(); error = nil }
-        catch { self.error = "Couldn't load categories. Pull to try again." }
+        loading = true
+        // Own task, so leaving the page mid-load doesn't cancel it.
+        let r = await Task { @MainActor in try await RumbleService.shared.browse() }.result
+        loading = false
+        switch r {
+        case .success(let c): categories = c; error = nil
+        case .failure: if categories.isEmpty { error = "Couldn't load categories. Pull to try again." }
+        }
     }
 
     func loadFeatured(force: Bool = false) async {
         guard force || featured.isEmpty, !loading else { return }
-        loading = true; defer { loading = false }
-        do { featured = try await RumbleService.shared.featuredChannels(); error = nil }
-        catch { self.error = "Couldn't load featured channels. Pull to try again." }
+        loading = true
+        let r = await Task { @MainActor in try await RumbleService.shared.featuredChannels() }.result
+        loading = false
+        switch r {
+        case .success(let f): featured = f; error = nil
+        case .failure: if featured.isEmpty { error = "Couldn't load featured channels. Pull to try again." }
+        }
     }
 }
 
@@ -317,7 +338,7 @@ private struct DiscoverFeed: View {
             }
         }
         .reportsScrollToHeader()
-        .refreshable { await refresh(force: true) }
+        .pullToRefresh { await refresh(force: true) }
         .task(id: section) { await refresh(force: false) }
         .miniPlayerSpace()
     }

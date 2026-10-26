@@ -26,6 +26,12 @@ struct LibraryData: Codable, Equatable {
     var autoLinks: [String: AutoLinkRecord] = [:]
     var searchHistory: [String] = []
     var muted: [MutedEntry] = []
+    /// RumbleSkip segments you've started marking but haven't finished (video id → draft).
+    var skipDrafts: [String: SkipDraft] = [:]
+    var channelTags: [ChannelTag] = []
+    /// channel path (lowercased) → tag ids
+    var taggedChannels: [String: [UUID]] = [:]
+    var taggedNames: [String: String] = [:]
 
     static let historyLimit = 500
 
@@ -47,6 +53,10 @@ struct LibraryData: Codable, Equatable {
         autoLinks = (try? c.decodeIfPresent([String: AutoLinkRecord].self, forKey: .autoLinks)) ?? [:]
         searchHistory = (try? c.decodeIfPresent([String].self, forKey: .searchHistory)) ?? []
         muted = (try? c.decodeIfPresent([MutedEntry].self, forKey: .muted)) ?? []
+        skipDrafts = (try? c.decodeIfPresent([String: SkipDraft].self, forKey: .skipDrafts)) ?? [:]
+        channelTags = (try? c.decodeIfPresent([ChannelTag].self, forKey: .channelTags)) ?? []
+        taggedChannels = (try? c.decodeIfPresent([String: [UUID]].self, forKey: .taggedChannels)) ?? [:]
+        taggedNames = (try? c.decodeIfPresent([String: String].self, forKey: .taggedNames)) ?? [:]
     }
 
     /// Merges Rumble's watch history (most recent first, no dates) into ours: videos we already have keep their
@@ -126,4 +136,13 @@ struct LibraryData: Codable, Equatable {
             positions = positions.filter { keep.contains($0.key) }
         }
     }
+}
+
+
+/// A RumbleSkip segment in progress: you can save the start now and set the end later.
+struct SkipDraft: Codable, Equatable {
+    var start: Double
+    var end: Double?
+    var category: String
+    var updatedAt = Date()
 }

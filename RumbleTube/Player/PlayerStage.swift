@@ -160,6 +160,18 @@ struct PlayerStage: View {
                     .frame(maxHeight: .infinity, alignment: .top).padding(.top, 10)
             }
             skipOverlays
+            if let d = player.pendingSkipDraft {
+                // Started a RumbleSkip segment earlier: one tap marks where it ends.
+                Button { player.markSkipDraftEnd() } label: {
+                    Label("Mark end · from \(TimeFormat.clock(d.start))", systemImage: "flag.checkered")
+                        .font(.caption.weight(.bold)).padding(.horizontal, 10).padding(.vertical, 6)
+                        .background(Color.rumbleGreen, in: Capsule()).foregroundStyle(.black)
+                }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .padding(isFullscreen ? 24 : 10)
+                .padding(.top, controlsVisible ? 34 : 0)
+            }
             if player.audioOnly && !controlsVisible {
                 Button { player.setAudioOnly(false) } label: {
                     Label("Show video", systemImage: "play.rectangle").font(.caption.weight(.semibold))

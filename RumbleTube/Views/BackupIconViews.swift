@@ -73,8 +73,44 @@ struct CustomIconView: View {
     @State private var error: String?
     private let side: CGFloat = 220
 
+    @State private var currentIcon = UIApplication.shared.alternateIconName
+    @State private var iconError: String?
+    private struct IconOption { let name: String?; let label: String; let preview: String }
+    private let builtIn: [IconOption] = [
+        .init(name: nil, label: "Classic", preview: "IconPreview-Default"),
+        .init(name: "AppIcon-Light", label: "Light", preview: "IconPreview-Light"),
+        .init(name: "AppIcon-Red", label: "Live red", preview: "IconPreview-Red"),
+        .init(name: "AppIcon-Waves", label: "Waves", preview: "IconPreview-Waves"),
+        .init(name: "AppIcon-Mono", label: "Mono", preview: "IconPreview-Mono"),
+    ]
+
     var body: some View {
         Form {
+            Section {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 14) {
+                        ForEach(builtIn, id: \.label) { opt in
+                            Button { setIcon(opt.name) } label: {
+                                VStack(spacing: 6) {
+                                    Image(opt.preview).resizable().frame(width: 62, height: 62)
+                                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                            .stroke(currentIcon == opt.name ? Color.rumbleGreen : .clear, lineWidth: 3).padding(-3))
+                                    Text(opt.label).font(.caption2)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.vertical, 6).padding(.horizontal, 2)
+                }
+                if let iconError { Text(iconError).font(.footnote).foregroundStyle(.red) }
+            } header: {
+                Text("App icon")
+            } footer: {
+                Text("Changes the real app icon. iOS shows a short confirmation when it switches.")
+            }
+
             Section {
                 VStack(spacing: 14) {
                     crop
@@ -98,7 +134,11 @@ struct CustomIconView: View {
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 6)
-            } footer: { Text("Drag to position, use the slider to zoom.") }
+            } header: {
+                Text("Your own picture")
+            } footer: {
+                Text("iOS doesn't let an app use a photo as its real icon, so your picture becomes a Home Screen shortcut that opens RumbleTube. Drag to position, use the slider to zoom.")
+            }
 
             Section("Name under the icon") {
                 TextField("Rumble", text: $name)
@@ -122,7 +162,7 @@ struct CustomIconView: View {
                 """)
             }
         }
-        .navigationTitle("Custom app icon")
+        .navigationTitle("App icon")
         .onChange(of: pick) { p in
             Task {
                 guard let d = try? await p?.loadTransferable(type: Data.self), let img = UIImage(data: d) else { return }
@@ -146,6 +186,15 @@ struct CustomIconView: View {
             ZStack {
                 Color.secondary.opacity(0.15)
                 Image(systemName: "photo").font(.largeTitle).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func setIcon(_ name: String?) {
+        guard UIApplication.shared.supportsAlternateIcons else { iconError = "This phone doesn't allow changing the icon."; return }
+        UIApplication.shared.setAlternateIconName(name) { err in
+            DispatchQueue.main.async {
+                if let err { iconError = err.localizedDescription } else { iconError = nil; currentIcon = name }
             }
         }
     }

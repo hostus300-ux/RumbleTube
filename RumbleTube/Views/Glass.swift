@@ -122,7 +122,19 @@ final class HeaderState: ObservableObject {
         else if run < -16 { set(false) }
     }
 
-    private func set(_ h: Bool) { if hidden != h { hidden = h } }
+    private func set(_ h: Bool) {
+        if hidden != h { hidden = h }
+        // Scrolling back up also brings the shrunken tab bar back (iOS otherwise waits until you reach the top).
+        TabBarState.shared.setExpandedByScroll(!h)
+    }
+}
+
+/// Lets a scroll up re-expand the iOS 26 shrunken tab bar.
+@MainActor
+final class TabBarState: ObservableObject {
+    static let shared = TabBarState()
+    @Published private(set) var keepExpanded = true
+    func setExpandedByScroll(_ up: Bool) { if keepExpanded != up { keepExpanded = up } }
 }
 
 private struct HeaderStateKey: EnvironmentKey { static let defaultValue: HeaderState? = nil }

@@ -268,6 +268,9 @@ enum AccountRequests {
             + [URLQueryItem(name: "name", value: name)]
         var r = URLRequest(url: c.url!)
         r.setValue("https://rumble.com/", forHTTPHeaderField: "Referer")
+        r.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
+        // Never answer from the phone's cache: a cached comment list made deleted comments look like they were still there.
+        r.cachePolicy = .reloadIgnoringLocalCacheData
         return r
     }
 

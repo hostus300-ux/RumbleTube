@@ -14,6 +14,43 @@ struct WatchPageInfo: Equatable {
     var channelPath: String?
     var channelName: String?
     var channelFollowers: String?
+    var channelVerified = false
+    var channelJoinable = false
+    var tipID: String?
+}
+
+/// The creator extras rumble.com shows next to Follow: the verified check, "Join" (memberships) and
+/// "Tip" (a Rumble Wallet QR code, loaded from /-htmx/wallet/payment/qr-modal?eid=…).
+enum CreatorExtras {
+    static func tipID(_ html: String) -> String? {
+        // hx-get="/-htmx/wallet/payment/qr-modal" … hx-vals='{"eid":"T1Ok2lc-9LU","dt":"c",…}'
+        guard let r = html.range(of: "/-htmx/wallet/payment/qr-modal") else { return nil }
+        let window = String(html[r.lowerBound...].prefix(1200))
+        let pattern = #"(?:&quot;|")eid(?:&quot;|")\s*:\s*(?:&quot;|")([A-Za-z0-9_-]+)"#
+        guard let re = try? NSRegularExpression(pattern: pattern),
+              let m = re.firstMatch(in: window, range: NSRange(window.startIndex..., in: window)),
+              let g = Range(m.range(at: 1), in: window) else { return nil }
+        return String(window[g])
+    }
+
+    static func joinable(_ html: String) -> Bool { html.contains("locals-subscription-button") }
+
+    static func qrModalURL(tipID: String) -> URL? {
+        var c = URLComponents(string: "https://rumble.com/-htmx/wallet/payment/qr-modal")!
+        c.queryItems = [URLQueryItem(name: "eid", value: tipID), URLQueryItem(name: "dt", value: "c"),
+                        URLQueryItem(name: "trigger_id", value: "tips-button"), URLQueryItem(name: "theme", value: "dark")]
+        return c.url
+    }
+
+    /// The QR image (a data: URL) from the tip modal's HTML.
+    static func qrImageData(_ html: String) -> Data? {
+        guard let r = html.range(of: #"src="data:image/png;base64,([^"]+)"[^>]*alt="QR Code""#, options: .regularExpression)
+                ?? html.range(of: #"src="data:image/png;base64,([^"]+)""#, options: .regularExpression) else { return nil }
+        let chunk = String(html[r])
+        guard let a = chunk.range(of: "base64,"), let e = chunk[a.upperBound...].firstIndex(of: "\"") else { return nil }
+        let b64 = String(chunk[a.upperBound..<e]).replacingOccurrences(of: "\n", with: "").replacingOccurrences(of: "\t", with: "")
+        return Data(base64Encoded: b64, options: .ignoreUnknownCharacters)
+    }
 }
 
 enum WatchPageParser {
@@ -49,6 +86,9 @@ enum WatchPageParser {
             info.embedId = embedId(fromURL: "https://rumble.com/embed/\(e)/")
         }
         if info.views == nil, let v = first(html, #""userInteractionCount"\s*:\s*"?(\d+)"#) { info.views = Int(v) }
+        info.channelVerified = html.contains("media-heading-verified")
+        info.channelJoinable = CreatorExtras.joinable(html)
+        info.tipID = CreatorExtras.tipID(html)
         info.likes = first(html, #"<span data-js="rumbles_up_votes">\s*([\d,.KMB]+)"#)
         info.dislikes = first(html, #"<span data-js="rumbles_down_votes">\s*([\d,.KMB]+)"#)
         if let d = first(html, #"class="[^"]*media-description[^"]*"[^>]*>([\s\S]*?)</(?:div|p)>\s*(?:<button|</div>|<div)"#) {
@@ -191,6 +231,7 @@ enum VideoDetailBuilder {
             published: embed.published ?? page.uploadDate,
             views: page.views, likes: page.likes, dislikes: page.dislikes,
             channel: channel, channelFollowers: page.channelFollowers,
-            liveStatus: embed.liveStatus, streams: embed.streams)
+            liveStatus: embed.liveStatus, streams: embed.streams,
+            channelVerified: page.channelVerified, channelJoinable: page.channelJoinable, tipID: page.tipID)
     }
 }

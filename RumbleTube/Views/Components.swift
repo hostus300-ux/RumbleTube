@@ -65,6 +65,8 @@ final class Router: ObservableObject {
 struct Thumbnail: View {
     let item: VideoItem
     var progress: Double? = nil
+    /// Your channel tags, shown as badges in the top-left corner.
+    var tags: [ChannelTag] = []
 
     var body: some View {
         Color.gray.opacity(0.18)
@@ -77,6 +79,8 @@ struct Thumbnail: View {
                 }
             }
             .clipped()
+            // Live streams get a rumble-red outline so they stand out in any list.
+            .overlay { if item.isLive { Rectangle().strokeBorder(Color.rumbleRed, lineWidth: 3) } }
             .overlay(alignment: .bottomTrailing) {
                 if item.isLive {
                     badge(item.watching.map { "● LIVE · \(CountFormat.short($0))" } ?? "● LIVE", Color.rumbleRed)
@@ -89,6 +93,7 @@ struct Thumbnail: View {
             .overlay {
                 if let p = progress, p >= 0.95 { Color.black.opacity(0.35) }
             }
+            .overlay(alignment: .topLeading) { if progress ?? 0 < 0.95 { ThumbnailTags(tags: tags) } }
             .overlay(alignment: .topLeading) {
                 if let p = progress, p >= 0.95 {
                     Label("Watched", systemImage: "checkmark.circle.fill")
@@ -124,24 +129,104 @@ struct ChannelAvatar: View {
     let name: String
     var url: String?
     var size: CGFloat = 36
+    /// "/c/Name": lets the picture be found when the list didn't include it.
+    var path: String? = nil
     @State private var image: UIImage?
+
+    private var known: String? { url ?? path.flatMap { AvatarDirectory.shared.url(for: $0) } }
 
     var body: some View {
         Circle().fill(Color.rumbleGreen.opacity(0.25))
             .overlay {
-                if let img = image ?? url.flatMap({ AvatarCache.shared.cached($0) }) {
+                if let img = image ?? known.flatMap({ AvatarCache.shared.cached($0) }) {
                     Image(uiImage: img).resizable().scaledToFill()
-                } else if url == nil {
+                } else {
                     Text(String(name.prefix(1)).uppercased()).font(.system(size: size * 0.45, weight: .bold))
                         .foregroundStyle(Color.rumbleGreen)
                 }
             }
             .frame(width: size, height: size)
             .clipShape(Circle())
-            .task(id: url) {
-                guard let url, AvatarCache.shared.cached(url) == nil else { return }
-                image = await AvatarCache.shared.load(url)
+            .task(id: (url ?? "") + "|" + (path ?? "")) {
+                if let url, let path { AvatarDirectory.shared.learn(path: path, url: url) }
+                var u = known
+                if u == nil, let path { u = await AvatarDirectory.shared.resolve(path) }   // look it up once
+                guard let u else { return }
+                if let c = AvatarCache.shared.cached(u) { image = c; return }
+                image = await AvatarCache.shared.load(u)
             }
+    }
+}
+
+/// Channel path → picture URL, learned from every list, channel page and followed list the app sees,
+/// and looked up (once per channel) when a list didn't include it. Kept between launches.
+final class AvatarDirectory: @unchecked Sendable {
+    static let shared = AvatarDirectory()
+    private let lock = NSLock()
+    private var map: [String: String]
+    private var pending: [String: Task<String?, Never>] = [:]
+    private var misses = Set<String>()
+    private var dirty = false
+    private let file = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("avatars.json")
+
+    private init() {
+        map = (try? Data(contentsOf: file)).flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
+    }
+
+    private func key(_ path: String) -> String { path.lowercased().components(separatedBy: "?")[0] }
+
+    func url(for path: String) -> String? { lock.lock(); defer { lock.unlock() }; return map[key(path)] }
+
+    func learn(path: String, url: String) {
+        lock.lock()
+        let k = key(path)
+        if map[k] != url { map[k] = url; dirty = true }
+        lock.unlock()
+        scheduleSave()
+    }
+
+    func learn(_ items: [VideoItem]) {
+        for v in items { if let p = v.channelPath, let a = v.channelAvatar { learn(path: p, url: a) } }
+    }
+
+    /// Fetch the channel page once to find its picture (shared by every avatar of that channel on screen).
+    func resolve(_ path: String) async -> String? {
+        let k = key(path)
+        lock.lock()
+        if let u = map[k] { lock.unlock(); return u }
+        if misses.contains(k) { lock.unlock(); return nil }
+        if let t = pending[k] { lock.unlock(); return await t.value }
+        let t = Task<String?, Never> {
+            await AvatarLookupGate.shared.enter()
+            let u = await Task { @MainActor in (try? await RumbleService.shared.channel(path))?.channel?.avatar }.value
+            await AvatarLookupGate.shared.leave()
+            return u
+        }
+        pending[k] = t
+        lock.unlock()
+        let u = await t.value
+        lock.lock()
+        pending[k] = nil
+        if let u { map[k] = u; dirty = true } else { misses.insert(k) }
+        lock.unlock()
+        scheduleSave()
+        return u
+    }
+
+    private var saveScheduled = false
+    private func scheduleSave() {
+        lock.lock()
+        guard dirty, !saveScheduled else { lock.unlock(); return }
+        saveScheduled = true
+        lock.unlock()
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 3) { [weak self] in
+            guard let self else { return }
+            self.lock.lock()
+            let snapshot = self.map.count > 5000 ? [:] : self.map
+            self.dirty = false; self.saveScheduled = false
+            self.lock.unlock()
+            if let d = try? JSONEncoder().encode(snapshot) { try? d.write(to: self.file, options: .atomic) }
+        }
     }
 }
 
@@ -188,14 +273,19 @@ struct VideoCard: View {
 
     private var card: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Thumbnail(item: item, progress: progress)
+            Thumbnail(item: item, progress: progress, tags: library.data.tags(for: item.channelPath))
             HStack(alignment: .top, spacing: 10) {
-                ChannelAvatar(name: item.channelName ?? "?", url: item.channelAvatar)
+                ChannelAvatar(name: item.channelName ?? "?", url: item.channelAvatar, path: item.channelPath)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(item.title).font(.subheadline.weight(.semibold)).lineLimit(2)
                         .foregroundStyle(.primary).multilineTextAlignment(.leading)
-                    Text([item.channelName, metaLine(item)].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
-                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    HStack(spacing: 3) {
+                        if let c = item.channelName { Text(c).lineLimit(1) }
+                        if item.channelVerified == true { VerifiedBadge(size: 11) }
+                        let meta = metaLine(item)
+                        if !meta.isEmpty { Text((item.channelName == nil ? "" : "· ") + meta).lineLimit(1) }
+                    }
+                    .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
             }
@@ -218,10 +308,17 @@ struct VideoRow: View {
 
     private var row: some View {
         HStack(alignment: .top, spacing: 10) {
-            Thumbnail(item: item, progress: progress).frame(width: 160).clipShape(RoundedRectangle(cornerRadius: 8))
+            Thumbnail(item: item, progress: progress, tags: library.data.tags(for: item.channelPath))
+                .frame(width: 160).clipShape(RoundedRectangle(cornerRadius: 8))
             VStack(alignment: .leading, spacing: 3) {
                 Text(item.title).font(.subheadline.weight(.medium)).lineLimit(2).multilineTextAlignment(.leading)
-                if let c = item.channelName { Text(c).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                if let c = item.channelName {
+                    HStack(spacing: 3) {
+                        Text(c).lineLimit(1)
+                        if item.channelVerified == true { VerifiedBadge(size: 11) }
+                    }
+                    .font(.caption).foregroundStyle(.secondary)
+                }
                 Text(metaLine(item)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 0)
@@ -255,6 +352,9 @@ struct VideoContextMenu: ViewModifier {
             }
             if let c = item.channel {
                 Button { router.open(c) } label: { Label("Go to channel", systemImage: "person.crop.square") }
+            }
+            if let c = item.channel {
+                Button { TagUI.shared.tag(c) } label: { Label("Tag channel…", systemImage: "tag") }
             }
             if item.channelName != nil {
                 if let e = library.data.muteEntry(for: item) {
@@ -297,7 +397,8 @@ final class ListingModel: ObservableObject {
     func loadMore(reset: Bool = false) async {
         guard !loading, hasNext else { return }
         loading = true
-        defer { loading = false; loadedOnce = true }
+        var cancelled = false
+        defer { loading = false; if !cancelled { loadedOnce = true } }
         do {
             let next = page + 1
             let result = try await loader(next)
@@ -309,7 +410,9 @@ final class ListingModel: ObservableObject {
             items += fresh
             hasNext = result.hasNext && !fresh.isEmpty
         } catch {
-            if !(error is CancellationError) { self.error = error.localizedDescription }
+            // Leaving a page cancels its request; that's not a failure, and it should load again next time.
+            if error is CancellationError || (error as? URLError)?.code == .cancelled { cancelled = true }
+            else { self.error = error.localizedDescription }
         }
     }
 }
@@ -342,7 +445,7 @@ struct ListingView<Header: View>: View {
                 footer
             }
         }
-        .refreshable { await model.reload() }
+        .pullToRefresh { await model.reload() }
         .task { if !model.loadedOnce { await model.loadMore() } }
     }
 
@@ -425,5 +528,102 @@ struct CardGrid<Content: View>: View {
         } else {
             content()
         }
+    }
+}
+
+
+/// At most three channel-page lookups for missing pictures at a time.
+actor AvatarLookupGate {
+    static let shared = AvatarLookupGate()
+    private var running = 0
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+    func enter() async {
+        if running < 3 { running += 1; return }
+        await withCheckedContinuation { waiting.append($0) }
+    }
+    func leave() {
+        if waiting.isEmpty { running -= 1 } else { waiting.removeFirst().resume() }
+    }
+}
+
+/// Rumble's green verified check, shown after verified creators' names.
+struct VerifiedBadge: View {
+    var size: CGFloat = 14
+    var body: some View {
+        Image(systemName: "checkmark.seal.fill")
+            .font(.system(size: size, weight: .semibold))
+            .foregroundStyle(Color(hex: 0x74CC1D))
+            .accessibilityLabel("Verified")
+    }
+}
+
+
+// MARK: - Pull to refresh with visible feedback
+
+/// `.refreshable` plus a small animated banner: "Refreshing…" while it really reloads, then "Updated".
+private struct RefreshFeedback: ViewModifier {
+    let action: () async -> Void
+    @State private var phase: Phase = .idle
+    enum Phase: Equatable { case idle, refreshing, done }
+
+    func body(content: Content) -> some View {
+        content
+            .refreshable {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { phase = .refreshing }
+                let started = Date()
+                await action()
+                // Keep the animation up long enough to be seen.
+                let left = 0.6 - Date().timeIntervalSince(started)
+                if left > 0 { try? await Task.sleep(nanoseconds: UInt64(left * 1_000_000_000)) }
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { phase = .done }
+                Task {
+                    try? await Task.sleep(nanoseconds: 1_200_000_000)
+                    withAnimation(.easeOut(duration: 0.25)) { if phase == .done { phase = .idle } }
+                }
+            }
+            .overlay(alignment: .top) {
+                if phase != .idle {
+                    RefreshBanner(done: phase == .done)
+                        .padding(.top, 8)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .allowsHitTesting(false)
+                }
+            }
+    }
+}
+
+private struct RefreshBanner: View {
+    let done: Bool
+    @State private var spin = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ZStack {
+                if done {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.rumbleGreen)
+                        .transition(.scale.combined(with: .opacity))
+                } else {
+                    Circle().trim(from: 0, to: 0.72)
+                        .stroke(Color.rumbleGreen, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                        .rotationEffect(.degrees(spin ? 360 : 0))
+                        .animation(.linear(duration: 0.8).repeatForever(autoreverses: false), value: spin)
+                    Image(systemName: "play.fill").font(.system(size: 7, weight: .black)).foregroundStyle(Color.rumbleGreen)
+                }
+            }
+            .frame(width: 18, height: 18)
+            Text(done ? "Updated" : "Refreshing…").font(.footnote.weight(.semibold))
+        }
+        .padding(.horizontal, 14).padding(.vertical, 8)
+        .background(.regularMaterial, in: Capsule())
+        .shadow(color: .black.opacity(0.2), radius: 6, y: 2)
+        .onAppear { spin = true }
+    }
+}
+
+extension View {
+    /// Pull to refresh with an animated "Refreshing… / Updated" banner.
+    func pullToRefresh(_ action: @escaping () async -> Void) -> some View {
+        modifier(RefreshFeedback(action: action))
     }
 }

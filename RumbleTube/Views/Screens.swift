@@ -23,6 +23,7 @@ struct ChannelView: View {
                 if !isMine {
                     ToolbarItem(placement: .navigationBarTrailing) {
                         Menu {
+                            Button { TagUI.shared.tag(channel) } label: { Label("Tag channel…", systemImage: "tag") }
                             if let e = library.data.muteEntry(path: channel.path, name: channel.name) {
                                 Button { MuteUI.shared.muteChannel(channel) } label: { Label("Edit mute tag", systemImage: "tag") }
                                 Button(role: .destructive) { library.data.unmute(e.key) } label: { Label("Unmute channel", systemImage: "speaker.wave.2") }
@@ -50,14 +51,19 @@ struct ChannelView: View {
                     .frame(height: 90).frame(maxWidth: .infinity).clipped()
             }
             HStack(spacing: 12) {
-                ChannelAvatar(name: ref.name, url: ref.avatar, size: 60)
+                ChannelAvatar(name: ref.name, url: ref.avatar, size: 60, path: ref.path)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(ref.name).font(.title3.weight(.bold)).lineLimit(2)
+                    HStack(spacing: 5) {
+                        Text(ref.name).font(.title3.weight(.bold)).lineLimit(2)
+                        if h?.verified == true { VerifiedBadge(size: 16) }
+                    }
                     if let f = h?.followers { Text("\(f) followers").font(.caption).foregroundStyle(.secondary) }
                 }
                 Spacer()
             }
             .padding(.horizontal, 12)
+            CreatorButtons(channel: ref, joinable: h?.joinable == true, tipID: h?.tipID)
+                .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12)
             if !isMine {
                 FollowControl(channel: ref, header: h, fullWidth: true)
             }
@@ -99,6 +105,13 @@ struct SettingsView: View {
                 NavigationLink { SkipSettingsView().miniPlayerSpace() } label: { tweak("RumbleSkip", "forward.end.alt", .green) }
                 NavigationLink { GestureSettingsView().miniPlayerSpace() } label: { tweak("Gestures", "hand.tap", .orange) }
                 NavigationLink { TabSettingsView().miniPlayerSpace() } label: { tweak("Tabs & layout", "square.grid.2x2", .blue) }
+                NavigationLink { ChannelTagsSettings().miniPlayerSpace() } label: {
+                    HStack {
+                        tweak("Channel tags", "tag", .purple)
+                        Spacer()
+                        if !library.data.channelTags.isEmpty { Text("\(library.data.channelTags.count)").foregroundStyle(.secondary) }
+                    }
+                }
                 NavigationLink { MutedListView().miniPlayerSpace() } label: {
                     HStack {
                         tweak("Muted channels & users", "speaker.slash", .gray)
@@ -137,7 +150,7 @@ struct SettingsView: View {
                 Toggle("Shrink tab bar while scrolling", isOn: pref(\.minimizeTabBar))
                 Toggle("Liquid Glass", isOn: pref(\.liquidGlass))
                     .disabled(!GlassUI.available)
-                NavigationLink { CustomIconView().miniPlayerSpace() } label: { Text("Custom app icon") }
+                NavigationLink { CustomIconView().miniPlayerSpace() } label: { Text("App icon") }
             } header: { Text("Look") } footer: {
                 Text(GlassUI.available
                      ? "Glass header buttons, filter chips and a floating mini player, like Apple's own apps. The tab bar and menus always use the system look."
@@ -194,12 +207,6 @@ struct SettingsView: View {
                 } header: { Text("Shorts") } footer: {
                     Text("Browsing never interrupts music or podcasts from other apps. Audio only switches over when you watch a video or unmute a Short.")
                 }
-            }
-
-            Section {
-                LabeledContent("Rumble ads", value: "None")
-            } header: { Text("Skipping & ads") } footer: {
-                Text("RumbleTube plays videos straight from Rumble's servers, so Rumble's ad player never loads. RumbleSkip handles sponsor reads inside videos.")
             }
 
             BackupSection()

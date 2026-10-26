@@ -669,3 +669,38 @@ final class DiscoverSectionsTests: XCTestCase {
         XCTAssertNil(f[1].livePath)
     }
 }
+
+final class CreatorExtrasTests: XCTestCase {
+    func testTipJoinVerifiedAndCardAvatars() throws {
+        let html = """
+        <svg class="verification-badge-icon media-heading-verified"></svg>
+        <button class="btn-red" data-js="locals-subscription-button">Join</button>
+        <button hx-get="/-htmx/wallet/payment/qr-modal" hx-vals='{"eid":"Ab1-x_9","dt":"c"}'>Tip</button>
+        """
+        XCTAssertEqual(CreatorExtras.tipID(html), "Ab1-x_9")
+        XCTAssertTrue(CreatorExtras.joinable(html))
+        XCTAssertNil(CreatorExtras.tipID("<button>Tip</button>"))
+        let png = Data([1, 2, 3, 4]).base64EncodedString()
+        XCTAssertEqual(CreatorExtras.qrImageData(#"<img src="data:image/png;base64,\#(png)" alt="QR Code">"#), Data([1, 2, 3, 4]))
+        let css = #".video-item--by-a--c42::before { background-image: url("https://example.com/a.jpg"); }"#
+        XCTAssertEqual(CardAvatarCSS.map(css)["c42"], "https://example.com/a.jpg")
+    }
+}
+
+final class ChannelTagTests: XCTestCase {
+    func testTagging() throws {
+        var lib = LibraryData()
+        let pol = lib.createTag(name: "  Politics and current events ", color: ChannelTag.palette[0])!
+        XCTAssertEqual(pol.name.count, ChannelTag.maxLength)
+        XCTAssertEqual(lib.createTag(name: "politics and cur", color: 0)?.id, pol.id, "same name reuses the tag")
+        let a = ChannelRef(path: "/c/Alpha?e9s=x", name: "Alpha")
+        lib.setTag(pol, on: a, true)
+        XCTAssertEqual(lib.tags(for: "/c/alpha").map(\.id), [pol.id])
+        XCTAssertEqual(lib.channels(tagged: pol.id).map(\.name), ["Alpha"])
+        let back = try JSONDecoder().decode(LibraryData.self, from: JSONEncoder().encode(lib))
+        XCTAssertEqual(back.tags(for: "/c/Alpha").first?.name, pol.name)
+        lib.deleteTag(pol.id)
+        XCTAssertTrue(lib.tags(for: "/c/alpha").isEmpty)
+        XCTAssertTrue(lib.taggedChannels.isEmpty)
+    }
+}

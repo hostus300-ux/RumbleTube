@@ -16,12 +16,18 @@ struct SettingsBackup: Codable {
     var skipStats: SkipStats?
     var follows: [ChannelRef]?
     var watchLater: [VideoItem]?
+    var channelTags: [ChannelTag]?
+    var taggedChannels: [String: [UUID]]?
+    var taggedNames: [String: String]?
+    var skipDrafts: [String: SkipDraft]?
 
     init(from lib: LibraryData, appVersion: String?) {
         self.appVersion = appVersion
         prefs = lib.prefs; skip = lib.skip; preferredHeight = lib.preferredHeight
         muted = lib.muted; localSegments = lib.localSegments; localLinks = lib.localLinks
         skipStats = lib.skipStats; follows = lib.follows; watchLater = lib.watchLater
+        channelTags = lib.channelTags; taggedChannels = lib.taggedChannels; taggedNames = lib.taggedNames
+        skipDrafts = lib.skipDrafts
     }
 
     func encoded() throws -> Data {
@@ -53,6 +59,10 @@ struct SettingsBackup: Codable {
         for (k, v) in localLinks ?? [:] where lib.localLinks[k] == nil { lib.localLinks[k] = v }
         for f in follows ?? [] where !lib.follows.contains(where: { $0.id == f.id }) { lib.follows.append(f) }
         for v in watchLater ?? [] where !lib.watchLater.contains(where: { $0.id == v.id }) { lib.watchLater.append(v) }
+        for t in channelTags ?? [] where !lib.channelTags.contains(where: { $0.id == t.id }) { lib.channelTags.append(t) }
+        for (k, v) in taggedChannels ?? [:] { lib.taggedChannels[k] = Array(Set((lib.taggedChannels[k] ?? []) + v)) }
+        for (k, v) in taggedNames ?? [:] where lib.taggedNames[k] == nil { lib.taggedNames[k] = v }
+        for (k, v) in skipDrafts ?? [:] where lib.skipDrafts[k] == nil { lib.skipDrafts[k] = v }
     }
 
     var summary: String {

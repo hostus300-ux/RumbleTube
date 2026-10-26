@@ -40,6 +40,23 @@ final class PlayerModel: ObservableObject {
     @Published private(set) var chapters: [Chapter] = []
     private var pendingStart: Double?
     var currentChapter: Chapter? { Timestamps.current(chapters, at: currentTime) }
+    /// Ask the full player to open the RumbleSkip panel (e.g. from the "Mark end" pill).
+    @Published var openSkipPanel = false
+    /// A RumbleSkip segment started on this video with no end yet.
+    var pendingSkipDraft: SkipDraft? {
+        guard let id = item?.id, let d = library.data.skipDrafts[id], d.end == nil else { return nil }
+        return d
+    }
+    /// "Mark end": the end is now; open the panel to submit.
+    func markSkipDraftEnd() {
+        guard let id = item?.id, var d = library.data.skipDrafts[id] else { return }
+        d.end = max(d.start + 0.5, currentTime)
+        d.updatedAt = Date()
+        library.data.skipDrafts[id] = d
+        if fullscreen { fullscreen = false }
+        expanded = true
+        openSkipPanel = true
+    }
     @Published var fullscreen = false
     @Published var zoomFill = false
     @Published private(set) var rate: Double = 1
@@ -67,6 +84,7 @@ final class PlayerModel: ObservableObject {
     private var loadTask: Task<Void, Never>?
     private var noticeTask: Task<Void, Never>?
     private var lastSaved: Double = 0
+    private var releaseTask: Task<Void, Never>?
     private var artwork: MPMediaItemArtwork?
     private var library: LibraryStore { LibraryStore.shared }
 
@@ -84,6 +102,17 @@ final class PlayerModel: ObservableObject {
                 self.isPlaying = status != .paused
                 // Native controls (or PiP) started playback: make sure we hold the audio for background play.
                 if status == .playing, !AppAudio.ownsAudio, self.player.currentItem != nil { AppAudio.takeOver() }
+                // Paused for a moment (not just buffering): hand the audio back so other apps' sound isn't held muted
+                // while RumbleTube merely sits open. Pressing play takes it again.
+                self.releaseTask?.cancel()
+                if status == .paused, AppAudio.ownsAudio {
+                    self.releaseTask = Task { @MainActor [weak self] in
+                        try? await Task.sleep(nanoseconds: 1_500_000_000)
+                        guard !Task.isCancelled, let self, self.player.timeControlStatus == .paused,
+                              self.pip?.isPictureInPictureActive != true else { return }
+                        AppAudio.release()
+                    }
+                }
                 self.updateNowPlaying()
                 if self.isLive || self.audioOnly { self.updateLiveActivity() }
             }
@@ -205,8 +234,17 @@ final class PlayerModel: ObservableObject {
         player.play()
     }
 
-    func seek(to t: Double) {
-        player.seek(to: CMTime(seconds: max(0, t), preferredTimescale: 600))
+    func seek(to t: Double, precise: Bool = false) {
+        let target = CMTime(seconds: max(0, t), preferredTimescale: 600)
+        if precise {
+            // Exact seek: a default (keyframe) seek can snap back to almost where you were, which made
+            // repeated double-tap rewinds look like they did nothing.
+            player.seek(to: target, toleranceBefore: CMTime(seconds: 0.25, preferredTimescale: 600),
+                        toleranceAfter: CMTime(seconds: 0.25, preferredTimescale: 600))
+        } else {
+            player.seek(to: target)
+        }
+        currentTime = max(0, t)
     }
 
     // MARK: - Streams
@@ -289,14 +327,21 @@ final class PlayerModel: ObservableObject {
     // MARK: - Gestures & speed
 
     func seek(by delta: Double) {
-        let t = player.currentTime().seconds + delta
+        // Repeated taps stack from where the last tap aimed, not from a position the seek hasn't reached yet.
+        let base = (Date().timeIntervalSince(lastRelativeSeek) < 1.2 ? lastRelativeTarget : nil) ?? player.currentTime().seconds
+        var t = base + delta
         if isLive {
             guard let w = liveWindow else { return }
-            seek(to: min(max(t, w.lowerBound + 1), w.upperBound))
-            return
+            t = min(max(t, w.lowerBound + 1), w.upperBound)
+        } else {
+            t = max(0, duration > 0 ? min(t, duration - 0.5) : t)
         }
-        seek(to: duration > 0 ? min(t, duration - 0.5) : t)
+        lastRelativeTarget = t
+        lastRelativeSeek = Date()
+        seek(to: t, precise: true)
     }
+    private var lastRelativeTarget: Double?
+    private var lastRelativeSeek = Date.distantPast
 
     // MARK: - Live DVR
 

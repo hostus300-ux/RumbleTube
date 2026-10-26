@@ -3,7 +3,7 @@ import SwiftUI
 // MARK: - Navigation routes & shared chrome
 
 enum AppRoute: Hashable {
-    case search, inbox, settings, followingList, earnings, history, watchLater, followedShorts, create, downloads
+    case search, inbox, settings, appSettings, followingList, earnings, history, watchLater, followedShorts, create, downloads
     case listing(title: String, path: String)
 }
 
@@ -14,7 +14,8 @@ extension AppRoute {
         case .create: CreateScreen()
         case .downloads: DownloadsScreen()
         case .inbox: InboxView()
-        case .settings: SettingsView()
+        case .settings: RumbleSettingsScreen()
+        case .appSettings: SettingsView()
         case .followingList: FollowingListScreen()
         case .earnings: EarningsScreen()
         case .history: HistoryScreen()
@@ -80,28 +81,46 @@ enum ContentFilter: String, CaseIterable, Identifiable {
     }
 }
 
+/// Filter chip in the YouTube app's style: a soft rounded rectangle, filled light when selected.
+/// Live chips use rumble.com's red.
 struct Chip: View {
     let title: String
     var icon: String? = nil
     var asset: String? = nil
     var selected = false
-    /// Live buttons use rumble.com's red, like the site's Live pill.
+    /// Optional tag colour (channel tags in My Feed).
+    var tint: Color? = nil
+    @Environment(\.colorScheme) private var scheme
     private var isLive: Bool { title.caseInsensitiveCompare("Live") == .orderedSame }
+
+    private var fill: Color {
+        if isLive { return Color.rumbleRed.opacity(selected ? 1 : 0.8) }
+        if let tint { return selected ? tint : tint.opacity(0.22) }
+        if selected { return scheme == .dark ? .white : .black }
+        return scheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05)
+    }
+    private var ink: Color {
+        if isLive { return .white }
+        if tint != nil { return selected ? .white : .primary }
+        if selected { return scheme == .dark ? .black : .white }
+        return .primary
+    }
+
     var body: some View {
         HStack(spacing: 5) {
-            if let asset { Image(asset).renderingMode(.template).resizable().scaledToFit().frame(width: 15, height: 15) }
-            else if let icon { Image(systemName: icon).font(.caption.weight(.bold)) }
-            Text(title).font(.subheadline.weight(.semibold))
+            if let asset { Image(asset).renderingMode(.template).resizable().scaledToFit().frame(width: 14, height: 14) }
+            else if let icon { Image(systemName: icon).font(.system(size: 12, weight: .semibold)) }
+            Text(title).font(.system(size: 14, weight: .medium))
         }
-        .padding(.horizontal, 14).padding(.vertical, 7)
-        .background {
-            if isLive { Capsule().fill(Color.rumbleRed.opacity(selected ? 1 : 0.85)) }
-            else if selected { Capsule().fill(Color.primary) }
-            else if !GlassUI.enabled { Capsule().fill(Color.secondary.opacity(0.18)) }
+        .padding(.horizontal, 12)
+        .frame(height: 32)
+        .background(fill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            if isLive && selected { RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.white.opacity(0.85), lineWidth: 1.5) }
         }
-        .overlay { if isLive && selected { Capsule().stroke(Color.white.opacity(0.9), lineWidth: 1.5) } }
-        .modifier(ChipGlass(on: !selected && !isLive))
-        .foregroundStyle(isLive ? Color.white : (selected ? Color(.systemBackground) : Color.primary))
+        .foregroundStyle(ink)
+        .contentShape(RoundedRectangle(cornerRadius: 8))
+        .animation(.easeInOut(duration: 0.15), value: selected)
     }
 }
 
@@ -159,16 +178,24 @@ final class HomeModel: ObservableObject {
         }
     }
 
+    private var running: Task<Void, Never>?
+
+    /// Reload Home. A pull-to-refresh during a load waits for that load instead of returning at once.
     func load() async {
-        guard !loading else { return }
-        loading = true
-        defer { loading = false }
-        do {
-            let fresh = try await RumbleService.shared.home()
-            page = fresh; error = nil; fetchedAt = Date(); videoRows = [:]
-            HomeCache.save(fresh)
+        if let r = running { await r.value; return }
+        let t = Task { @MainActor in
+            loading = true
+            defer { loading = false }
+            do {
+                let fresh = try await RumbleService.shared.home()
+                page = fresh; error = nil; fetchedAt = Date(); videoRows = [:]
+                HomeCache.save(fresh)
+            }
+            catch { if page == nil { self.error = error.localizedDescription } }
         }
-        catch { if page == nil { self.error = error.localizedDescription } }
+        running = t
+        await t.value
+        running = nil
     }
 }
 
@@ -248,7 +275,7 @@ struct HomeScreen: View {
             .padding(.bottom, 20)
         }
         .reportsScrollToHeader()
-        .refreshable {
+        .pullToRefresh {
             await model.load()
             if filter == .videos { await model.loadVideoRows() }
         }
@@ -298,10 +325,11 @@ struct CompactCard: View {
 
     private var card: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Thumbnail(item: item, progress: progress).clipShape(RoundedRectangle(cornerRadius: 10))
+            Thumbnail(item: item, progress: progress, tags: library.data.tags(for: item.channelPath))
+                .clipShape(RoundedRectangle(cornerRadius: 10))
             Text(item.title).font(.subheadline.weight(.semibold)).lineLimit(2).multilineTextAlignment(.leading)
             HStack(spacing: 6) {
-                ChannelAvatar(name: item.channelName ?? "?", url: item.channelAvatar, size: 20)
+                ChannelAvatar(name: item.channelName ?? "?", url: item.channelAvatar, size: 20, path: item.channelPath)
                 Text(item.channelName ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Text(metaLine(item)).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
@@ -502,7 +530,7 @@ struct SearchScreen: View {
                         case .channel(let c):
                             Button { router.open(c) } label: {
                                 HStack(spacing: 10) {
-                                    ChannelAvatar(name: c.name, url: c.avatar, size: 28)
+                                    ChannelAvatar(name: c.name, url: c.avatar, size: 28, path: c.path)
                                     Text(c.name).foregroundStyle(.primary)
                                     Spacer()
                                     Text("Channel").font(.caption).foregroundStyle(.secondary)
@@ -547,7 +575,7 @@ struct SearchScreen: View {
 
     private func channelRow(_ c: ChannelResult) -> some View {
         HStack(spacing: 12) {
-            ChannelAvatar(name: c.ref.name, url: c.ref.avatar, size: 48)
+            ChannelAvatar(name: c.ref.name, url: c.ref.avatar, size: 48, path: c.ref.path)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
                     Text(c.ref.name).font(.body.weight(.semibold)).lineLimit(1)
@@ -657,6 +685,10 @@ struct MyFeedScreen: View {
     @EnvironmentObject var player: PlayerModel
     @EnvironmentObject var router: Router
     @State private var showLogin = false
+    /// A channel tag chosen in the chips: shows the followed channels with that tag instead of a pill.
+    @State private var selectedTag: UUID?
+    @State private var tagItems: [VideoItem] = []
+    @State private var tagLoading = false
 
     var body: some View {
         ScrollView {
@@ -666,6 +698,26 @@ struct MyFeedScreen: View {
                 }
                 channelCircles
                 pills
+                if let id = selectedTag, let tag = library.data.channelTags.first(where: { $0.id == id }) {
+                    tagSection(tag)
+                } else {
+                    feedList
+                }
+            }
+        }
+        .reportsScrollToHeader()
+        .pullToRefresh {
+            if let id = selectedTag { await loadTag(id, force: true) } else { await reload(force: true) }
+        }
+        .task(id: "\(account.loggedIn)|\(library.data.follows.count)") { await reload() }
+        .task(id: selectedTag) { if let id = selectedTag { await loadTag(id) } }
+        .onChange(of: model.pill) { _ in Task { await model.loadFeed() } }
+        .appHeader("My Feed")
+        .miniPlayerSpace()
+        .sheet(isPresented: $showLogin) { LoginView().environmentObject(account) }
+    }
+
+    @ViewBuilder private var feedList: some View {
                 CardGrid {
                     ForEach(model.items) { item in
                         Button { player.play(item) } label: { VideoCard(item: item) }.buttonStyle(.plain)
@@ -678,15 +730,60 @@ struct MyFeedScreen: View {
                         .foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(40)
                 }
                 if let e = model.error { Text(e).font(.caption).foregroundStyle(.secondary).padding() }
+    }
+
+    // MARK: channel tags
+
+    /// Followed channels (Rumble + this phone) carrying the tag. Tagged channels you don't follow only get badges.
+    private func followedTagged(_ id: UUID) -> [ChannelRef] {
+        var followed: [String: ChannelRef] = [:]
+        for c in model.channels { followed[c.ref.path.lowercased()] = c.ref }
+        for c in library.data.follows { followed[c.path.lowercased()] = followed[c.path.lowercased()] ?? c }
+        return library.data.channels(tagged: id).compactMap { followed[$0.path.lowercased()] }
+    }
+
+    private func loadTag(_ id: UUID, force: Bool = false) async {
+        let refs = followedTagged(id)
+        guard !refs.isEmpty else { tagItems = []; return }
+        tagLoading = true
+        defer { tagLoading = false }
+        let r = await RumbleService.shared.feed(refs, force: force)
+        guard selectedTag == id else { return }
+        tagItems = r.items.filter { $0.isShort != true }
+    }
+
+    @ViewBuilder private func tagSection(_ tag: ChannelTag) -> some View {
+        let refs = followedTagged(tag.id)
+        if refs.isEmpty {
+            VStack(spacing: 8) {
+                TagBadge(tag: tag)
+                Text("None of the channels you follow have this tag yet. Long-press a video or use ⋯ on a channel page to tag it.")
+                    .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
             }
+            .frame(maxWidth: .infinity).padding(40)
+        } else {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 14) {
+                    ForEach(refs) { c in
+                        Button { router.open(c) } label: {
+                            VStack(spacing: 5) {
+                                ChannelAvatar(name: c.name, url: c.avatar, size: 52, path: c.path)
+                                    .overlay(Circle().stroke(Color(hex: tag.color), lineWidth: 2.5).padding(-3))
+                                Text(c.name).font(.caption2).lineLimit(1).frame(width: 66)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 12).padding(.vertical, 8)
+            }
+            CardGrid {
+                ForEach(tagItems) { item in
+                    Button { player.play(item) } label: { VideoCard(item: item) }.buttonStyle(.plain)
+                }
+            }
+            if tagLoading && tagItems.isEmpty { ProgressView().frame(maxWidth: .infinity).padding(40) }
         }
-        .reportsScrollToHeader()
-        .refreshable { await reload(force: true) }
-        .task(id: "\(account.loggedIn)|\(library.data.follows.count)") { await reload() }
-        .onChange(of: model.pill) { _ in Task { await model.loadFeed() } }
-        .appHeader("My Feed")
-        .miniPlayerSpace()
-        .sheet(isPresented: $showLogin) { LoginView().environmentObject(account) }
     }
 
     private func reload(force: Bool = false) async {
@@ -732,7 +829,19 @@ struct MyFeedScreen: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 ForEach(account.loggedIn ? MyFeedPill.allCases : [MyFeedPill.all]) { p in
-                    Button { model.pill = p } label: { Chip(title: p.title, selected: model.pill == p) }.buttonStyle(.plain)
+                    Button { selectedTag = nil; model.pill = p } label: {
+                        Chip(title: p.title, selected: selectedTag == nil && model.pill == p)
+                    }
+                    .buttonStyle(.plain)
+                }
+                if !library.data.channelTags.isEmpty {
+                    Divider().frame(height: 22)
+                    ForEach(library.data.channelTags) { t in
+                        Button { selectedTag = selectedTag == t.id ? nil : t.id } label: {
+                            Chip(title: t.name, selected: selectedTag == t.id, tint: Color(hex: t.color))
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
                 if account.loggedIn {
                     Divider().frame(height: 22)
@@ -771,7 +880,7 @@ struct ChannelCircle: View {
 
     var body: some View {
         VStack(spacing: 6) {
-            ChannelAvatar(name: channel.ref.name, url: channel.ref.avatar, size: 56)
+            ChannelAvatar(name: channel.ref.name, url: channel.ref.avatar, size: 56, path: channel.ref.path)
                 .padding(3)
                 .overlay(Circle().stroke(live ? Color.rumbleRed : (recent ? Color.rumbleGreen : Color.clear), lineWidth: 3))
                 .overlay(alignment: .bottom) {
@@ -834,7 +943,7 @@ struct AccountScreen: View {
             .padding(.vertical, 12)
         }
         .reportsScrollToHeader()
-        .refreshable {
+        .pullToRefresh {
             await account.loadProfile()
             await WatchHistorySync.shared.sync(force: true)
         }
@@ -938,7 +1047,7 @@ struct FollowingListScreen: View {
             ForEach(rows) { c in
                 Button { open(c) } label: {
                     HStack(spacing: 12) {
-                        ChannelAvatar(name: c.ref.name, url: c.ref.avatar, size: 48)
+                        ChannelAvatar(name: c.ref.name, url: c.ref.avatar, size: 48, path: c.ref.path)
                             .overlay(Circle().stroke(isLive(c) ? Color.rumbleRed : .clear, lineWidth: 2.5).padding(-3))
                         VStack(alignment: .leading, spacing: 2) {
                             Text(c.ref.name).font(.body.weight(.semibold)).lineLimit(1)
@@ -1033,7 +1142,7 @@ struct HistoryScreen: View {
                 if sync.syncing { ProgressView() } else { Text("Videos you watch show up here.").foregroundStyle(.secondary) }
             }
         }
-        .refreshable { await sync.sync(force: true) }
+        .pullToRefresh { await sync.sync(force: true) }
         .task { await sync.sync() }
         .navigationTitle("Watch History")
         .navigationBarTitleDisplayMode(.inline)

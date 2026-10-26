@@ -43,6 +43,31 @@ struct SkipPanel: View {
             .animation(.easeInOut, value: message)
         }
         .presentationDetents([.medium, .large])
+        .onAppear(perform: loadDraft)
+        .onChange(of: startText) { _ in saveDraft() }
+        .onChange(of: endText) { _ in saveDraft() }
+        .onChange(of: category) { _ in saveDraft() }
+    }
+
+    // MARK: drafts (start now, end later)
+
+    private var videoID: String? { player.item?.id }
+
+    private func loadDraft() {
+        guard let id = videoID, let d = library.data.skipDrafts[id] else { return }
+        startText = TimeFormat.precise(d.start)
+        endText = d.end.map(TimeFormat.precise) ?? ""
+        category = SkipCategory(rawValue: d.category) ?? .sponsor
+    }
+
+    /// Whatever you've typed is kept for this video, so you can close the panel, keep watching and come back.
+    private func saveDraft() {
+        guard let id = videoID else { return }
+        if let s = TimeFormat.parseClock(startText) {
+            library.data.skipDrafts[id] = SkipDraft(start: s, end: TimeFormat.parseClock(endText), category: category.rawValue)
+        } else if startText.isEmpty && endText.isEmpty {
+            library.data.skipDrafts[id] = nil
+        }
     }
 
     // MARK: sections
@@ -100,6 +125,14 @@ struct SkipPanel: View {
             Picker("Category", selection: $category) {
                 ForEach(SkipCategory.allCases) { c in Text(c.name).tag(c) }
             }
+            if TimeFormat.parseClock(startText) != nil && TimeFormat.parseClock(endText) == nil {
+                Button {
+                    saveDraft()
+                    dismiss()
+                } label: {
+                    Label("Save start, set the end later", systemImage: "bookmark")
+                }
+            }
             HStack {
                 Button("Preview") {
                     if let s = TimeFormat.parseClock(startText) { player.seek(to: max(0, s - 2)); player.resume() }
@@ -117,8 +150,9 @@ struct SkipPanel: View {
         } header: {
             Text("Mark a segment")
         } footer: {
-            Text(hasServer ? "Submitted segments are shared with everyone using your RumbleSkip server."
-                 : "No community server set — segments are saved on this device only. Add one in RumbleSkip settings.")
+            Text((hasServer ? "Submitted segments are shared with everyone using your RumbleSkip server."
+                  : "No community server set — segments are saved on this device only. Add one in RumbleSkip settings.")
+                 + " Don't know where it ends yet? Save the start, keep watching, and tap Mark end on the video when it's over.")
         }
     }
 
@@ -207,6 +241,7 @@ struct SkipPanel: View {
             let m = await player.submitSegment(start: s, end: e, category: cat, localOnly: localOnly)
             if m.hasPrefix("Submitted") || m.hasPrefix("Saved") || m.hasPrefix("Someone") {
                 startText = ""; endText = ""
+                if let id = videoID { library.data.skipDrafts[id] = nil }
             }
             return m
         }

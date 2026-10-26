@@ -32,6 +32,8 @@ struct VideoItem: Codable, Hashable, Identifiable {
     var commentCount: Int? = nil
     /// Section/category it was found in (e.g. "News"), used for personal ranking.
     var category: String? = nil
+    /// Rumble's green verified check next to the channel name.
+    var channelVerified: Bool? = nil
 
     var publishedDate: Date? { published.flatMap(DateParsing.iso8601) }
     var durationSeconds: Double? { duration.flatMap(TimeFormat.parseClock) }
@@ -63,6 +65,11 @@ struct ChannelHeader: Codable, Hashable {
     var rumbleID: String? = nil
     var rumbleType: String? = nil
     var followingOnRumble: Bool? = nil
+    var verified: Bool? = nil
+    /// The channel offers paid memberships ("Join" on rumble.com).
+    var joinable: Bool? = nil
+    /// Rumble Wallet tip id (the "Tip" button's QR code), when the creator set one up.
+    var tipID: String? = nil
 }
 
 /// Result of extracting one listing page.
@@ -114,6 +121,9 @@ struct VideoDetail: Codable, Hashable {
     var chatID: String? = nil
     var rantsAPI: String? = nil
     var rantLevels: [[Int]]? = nil
+    var channelVerified: Bool? = nil
+    var channelJoinable: Bool? = nil
+    var tipID: String? = nil
     var chat: ChatConfig? {
         guard let a = chatAPI, let i = chatID else { return nil }
         var c = ChatConfig(apiBase: a, chatID: i, rantsBase: rantsAPI)

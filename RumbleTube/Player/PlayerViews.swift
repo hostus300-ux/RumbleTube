@@ -164,7 +164,8 @@ struct PlayerScreen: View {
         return Button { showLiveDetails = true } label: {
             HStack(spacing: 10) {
                 ChannelAvatar(name: d?.channel?.name ?? item?.channelName ?? "?",
-                              url: d?.channel?.avatar ?? channelAvatar ?? item?.channelAvatar, size: 34)
+                              url: d?.channel?.avatar ?? channelAvatar ?? item?.channelAvatar, size: 34,
+                              path: d?.channel?.path ?? item?.channelPath)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(d?.title ?? item?.title ?? "").font(.subheadline.weight(.semibold)).lineLimit(1)
                     HStack(spacing: 6) {
@@ -187,6 +188,9 @@ struct PlayerScreen: View {
 
     private func applySheets<V: View>(_ v: V) -> some View {
         v
+        .onChange(of: player.openSkipPanel) { open in
+            if open { showSkipPanel = true; player.openSkipPanel = false }
+        }
         .sheet(isPresented: $showSkipPanel) {
             SkipPanel().environmentObject(player).environmentObject(library)
         }
@@ -247,7 +251,10 @@ struct PlayerScreen: View {
                 }
             }
             actions(item, d)
-            if let c = d?.channel ?? item?.channel { channelRow(c, followers: d?.channelFollowers) }
+            if let c = d?.channel ?? item?.channel {
+                channelRow(c, followers: d?.channelFollowers)
+                CreatorButtons(channel: c, joinable: d?.channelJoinable == true, tipID: d?.tipID)
+            }
             if let desc = d?.description, !desc.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     if !player.chapters.isEmpty && expandedDescription == false {
@@ -271,12 +278,20 @@ struct PlayerScreen: View {
                     }
                     Text(SeekLinks.attributed(desc)).font(.footnote).lineLimit(expandedDescription ? nil : 3)
                         .seekLinks(for: nil, player: player)
-                    Button(expandedDescription ? "Show less" : "Show more") { expandedDescription.toggle() }
-                        .font(.footnote.weight(.semibold))
+                    Button(expandedDescription ? "Show less" : "Show more") {
+                        withAnimation(.easeInOut(duration: 0.2)) { expandedDescription.toggle() }
+                    }
+                    .font(.footnote.weight(.semibold))
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+                .contentShape(RoundedRectangle(cornerRadius: 12))
+                // Tap anywhere on the collapsed description to open it; "Show less" closes it.
+                .onTapGesture {
+                    guard !expandedDescription else { return }
+                    withAnimation(.easeInOut(duration: 0.2)) { expandedDescription = true }
+                }
             }
             upNextRow
             if !more.isEmpty {
@@ -302,8 +317,16 @@ struct PlayerScreen: View {
     private func actions(_ item: VideoItem?, _ d: VideoDetail?) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                if let likes = d?.likes {
-                    pill(Label(likes, systemImage: "hand.thumbsup"))
+                if d?.likes != nil || d?.dislikes != nil {
+                    // Rumble shows dislikes publicly, so they're shown here too.
+                    HStack(spacing: 12) {
+                        Label(d?.likes ?? "0", systemImage: "hand.thumbsup")
+                        Rectangle().fill(Color.secondary.opacity(0.4)).frame(width: 1, height: 16)
+                        Label(d?.dislikes ?? "0", systemImage: "hand.thumbsdown")
+                    }
+                    .font(.footnote.weight(.semibold))
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                    .background(Color.secondary.opacity(0.15), in: Capsule())
                 }
                 if d?.liveStatus != .isLive {
                     Button { withAnimation(.easeInOut(duration: 0.2)) { commentsOpen = true } } label: {
@@ -356,15 +379,19 @@ struct PlayerScreen: View {
         HStack(spacing: 10) {
             Button { router.open(c) } label: {
                 HStack(spacing: 10) {
-                    ChannelAvatar(name: c.name, url: c.avatar ?? channelAvatar ?? player.item?.channelAvatar, size: 40)
+                    ChannelAvatar(name: c.name, url: c.avatar ?? channelAvatar ?? player.item?.channelAvatar, size: 40, path: c.path)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(c.name).font(.subheadline.weight(.semibold)).lineLimit(1)
+                        HStack(spacing: 4) {
+                            Text(c.name).font(.subheadline.weight(.semibold)).lineLimit(1)
+                            if player.detail?.channelVerified == true { VerifiedBadge(size: 12) }
+                        }
                         if let f = followers { Text("\(f) followers").font(.caption).foregroundStyle(.secondary) }
                     }
                 }
             }
             .buttonStyle(.plain)
             .contextMenu {
+                Button { TagUI.shared.tag(c) } label: { Label("Tag channel…", systemImage: "tag") }
                 if let e = library.data.muteEntry(path: c.path, name: c.name) {
                     Button(role: .destructive) { library.data.unmute(e.key) } label: { Label("Unmute channel", systemImage: "speaker.wave.2") }
                 } else {
@@ -416,21 +443,25 @@ struct MiniPlayer: View {
     @ObservedObject private var clock = PlayerClock.shared   // redraw as time moves
     @EnvironmentObject var player: PlayerModel
     @EnvironmentObject var library: LibraryStore
+    @State private var dragX: CGFloat = 0
 
     var body: some View {
         if let item = player.item, !player.expanded {
-            if GlassUI.available && library.data.prefs.liquidGlass {
-                bar(item)
-                    .overlay(alignment: .bottom) { progress.padding(.horizontal, 16) }
-                    .glassCard(22, interactive: true)
-                    .padding(.horizontal, 10).padding(.bottom, 6)
-            } else {
-                VStack(spacing: 0) {
-                    progress
+            Group {
+                if GlassUI.available && library.data.prefs.liquidGlass {
                     bar(item)
+                        .overlay(alignment: .bottom) { progress.padding(.horizontal, 16) }
+                        .glassCard(22, interactive: true)
+                        .padding(.horizontal, 10).padding(.bottom, 6)
+                } else {
+                    VStack(spacing: 0) {
+                        progress
+                        bar(item)
+                    }
+                    .background(.regularMaterial)
                 }
-                .background(.regularMaterial)
             }
+            .miniPlayerSwipe(dragX: $dragX, player: player)
         }
     }
 
@@ -444,10 +475,11 @@ struct MiniPlayer: View {
 
     private func bar(_ item: VideoItem) -> some View {
                 HStack(spacing: 10) {
-                    Thumbnail(item: item).frame(width: 96).clipShape(RoundedRectangle(cornerRadius: 6))
+                    MiniPlayerArt(item: item).frame(width: 96, height: 54).clipShape(RoundedRectangle(cornerRadius: 6))
                     VStack(alignment: .leading, spacing: 2) {
                         Text(player.detail?.title ?? item.title).font(.footnote.weight(.semibold)).lineLimit(1)
                         Text(player.detail?.channel?.name ?? item.channelName ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        MiniPlayerTime().font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 4)
                     Button { if player.miniPlayerArmed { player.togglePlay() } } label: {
@@ -461,11 +493,78 @@ struct MiniPlayer: View {
             .foregroundStyle(.primary)
             .contentShape(Rectangle())
             .onTapGesture { if player.miniPlayerArmed { player.expanded = true } }
-            .gesture(DragGesture(minimumDistance: 20).onEnded { v in
-                if v.translation.height < -30 && abs(v.translation.width) < 60 { player.expanded = true }
-                // swipe right to close (also when the X is hidden in the compact bar)
-                else if v.translation.width > 80 && abs(v.translation.height) < 60 { withAnimation { player.close() } }
-            })
+    }
+}
+
+/// The mini player's picture: the live video (so a long-press can start picture-in-picture), or the
+/// plain thumbnail while loading / in audio-only. No time badge: it doesn't fit.
+struct MiniPlayerArt: View {
+    let item: VideoItem
+    @EnvironmentObject var player: PlayerModel
+
+    var body: some View {
+        ZStack {
+            Color.black
+            if let t = player.detail?.thumbnail ?? item.thumbnail, let u = URL(string: t) {
+                AsyncImage(url: u) { $0.image?.resizable().scaledToFill() }
+            }
+            if player.stream != nil && !player.audioOnly && player.error == nil {
+                PlayerSurface(player: player.player, fill: true, enablePiP: true)
+                    .allowsHitTesting(false)
+            }
+        }
+        .clipped()
+        .contentShape(Rectangle())
+        // Hold the mini player's picture to pop the video out into picture-in-picture.
+        .onLongPressGesture(minimumDuration: 0.45) {
+            guard let pip = player.pip, pip.isPictureInPicturePossible else { return }
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            pip.startPictureInPicture()
+        }
+        .accessibilityHint("Touch and hold for picture in picture")
+    }
+}
+
+/// "1:23 / 10:05" (or LIVE) as a line of the mini player's details.
+struct MiniPlayerTime: View {
+    @EnvironmentObject var player: PlayerModel
+    @ObservedObject private var clock = PlayerClock.shared
+
+    var body: some View {
+        if player.isLive {
+            Text("LIVE").foregroundStyle(Color.rumbleRed).fontWeight(.bold)
+        } else if player.duration > 0 {
+            Text("\(TimeFormat.clock(clock.time)) / \(TimeFormat.clock(player.duration))")
+        }
+    }
+}
+
+extension View {
+    /// Drag the mini player: right slides it off screen and closes the video; up opens the full player.
+    func miniPlayerSwipe(dragX: Binding<CGFloat>, player: PlayerModel) -> some View {
+        self
+            .offset(x: dragX.wrappedValue)
+            .opacity(1 - Double(min(1, dragX.wrappedValue / 500)) * 0.6)
+            .simultaneousGesture(DragGesture(minimumDistance: 12)
+                .onChanged { v in
+                    guard abs(v.translation.width) > abs(v.translation.height) else { return }
+                    dragX.wrappedValue = max(0, v.translation.width)
+                }
+                .onEnded { v in
+                    let horizontal = abs(v.translation.width) > abs(v.translation.height)
+                    if !horizontal && v.translation.height < -30 {
+                        dragX.wrappedValue = 0
+                        player.expanded = true
+                    } else if horizontal && (v.translation.width > 110 || v.predictedEndTranslation.width > 260) {
+                        withAnimation(.easeIn(duration: 0.18)) { dragX.wrappedValue = UIScreen.main.bounds.width + 40 }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                            player.close()
+                            dragX.wrappedValue = 0
+                        }
+                    } else {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { dragX.wrappedValue = 0 }
+                    }
+                })
     }
 }
 
@@ -478,18 +577,22 @@ struct MiniPlayerAccessory: View {
     @ObservedObject private var clock = PlayerClock.shared   // redraw as time moves
     @EnvironmentObject var player: PlayerModel
     @Environment(\.tabViewBottomAccessoryPlacement) private var placement
+    @State private var dragX: CGFloat = 0
 
     var body: some View {
         if let item = player.item {
             let inline = placement == .inline
             HStack(spacing: 10) {
-                Thumbnail(item: item)
-                    .frame(width: inline ? 40 : 52)
+                MiniPlayerArt(item: item)
+                    .frame(width: inline ? 40 : 56, height: inline ? 24 : 32)
                     .clipShape(RoundedRectangle(cornerRadius: inline ? 6 : 8))
                 VStack(alignment: .leading, spacing: 0) {
                     Text(player.detail?.title ?? item.title).font(.footnote.weight(.semibold)).lineLimit(1)
-                    Text(player.detail?.channel?.name ?? item.channelName ?? "")
-                        .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    HStack(spacing: 4) {
+                        Text(player.detail?.channel?.name ?? item.channelName ?? "").lineLimit(1)
+                        if !inline { Text("·"); MiniPlayerTime().monospacedDigit() }
+                    }
+                    .font(.caption2).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 4)
                 Button { if player.miniPlayerArmed { player.togglePlay() } } label: {
@@ -517,11 +620,7 @@ struct MiniPlayerAccessory: View {
             }
             .contentShape(Rectangle())
             .onTapGesture { if player.miniPlayerArmed { player.expanded = true } }
-            .gesture(DragGesture(minimumDistance: 20).onEnded { v in
-                if v.translation.height < -30 && abs(v.translation.width) < 60 { player.expanded = true }
-                // swipe right to close (also when the X is hidden in the compact bar)
-                else if v.translation.width > 80 && abs(v.translation.height) < 60 { withAnimation { player.close() } }
-            })
+            .miniPlayerSwipe(dragX: $dragX, player: player)
         }
     }
 }
