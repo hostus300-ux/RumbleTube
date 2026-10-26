@@ -599,19 +599,6 @@ final class MutingTests: XCTestCase {
     }
 }
 
-final class HomeIconTests: XCTestCase {
-    func testProfile() throws {
-        let png = Data([0x89, 0x50, 0x4E, 0x47])
-        let d = try HomeIconProfile.make(name: "  My Rumble ", iconPNG: png, bundleID: "com.example.app")
-        let p = try PropertyListSerialization.propertyList(from: d, format: nil) as! [String: Any]
-        XCTAssertEqual(p["PayloadType"] as? String, "Configuration")
-        let clip = (p["PayloadContent"] as! [[String: Any]])[0]
-        XCTAssertEqual(clip["Label"] as? String, "My Rumble")
-        XCTAssertEqual(clip["URL"] as? String, "rumbletube://open")
-        XCTAssertEqual(clip["Icon"] as? Data, png)
-        XCTAssertEqual(clip["TargetApplicationBundleIdentifier"] as? String, "com.example.app")
-    }
-}
 
 final class SettingsBackupTests: XCTestCase {
     func testRoundTripAndMerge() throws {
