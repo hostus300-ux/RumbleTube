@@ -173,6 +173,8 @@ struct AppHeader: ViewModifier {
     var settings = false
     /// Extra controls shown under the title inside the header (e.g. Discover's Videos / Live).
     var accessory: AnyView? = nil
+    /// Accessory runs edge to edge (scrolling chip rows).
+    var fullWidthAccessory = false
     @EnvironmentObject var account: AccountStore
     @EnvironmentObject var library: LibraryStore
     @StateObject private var state = HeaderState()
@@ -212,7 +214,7 @@ struct AppHeader: ViewModifier {
     private var bar: some View {
         VStack(spacing: 6) {
             titleRow
-            if let accessory { accessory.padding(.horizontal, 16) }
+            if let accessory { accessory.padding(.horizontal, fullWidthAccessory ? 0 : 16) }
         }
         .padding(.bottom, 6)
     }
@@ -260,5 +262,9 @@ extension View {
     func appHeader(_ title: String, settings: Bool = false) -> some View { modifier(AppHeader(title: title, settings: settings)) }
     func appHeader<A: View>(_ title: String, @ViewBuilder accessory: () -> A) -> some View {
         modifier(AppHeader(title: title, accessory: AnyView(accessory())))
+    }
+    /// Header with a chip row under the title; the chips slide away and come back with the header (like YouTube).
+    func appHeader<A: View>(_ title: String, @ViewBuilder chips: () -> A) -> some View {
+        modifier(AppHeader(title: title, accessory: AnyView(chips()), fullWidthAccessory: true))
     }
 }

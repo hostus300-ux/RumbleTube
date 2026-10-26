@@ -310,12 +310,30 @@ struct DiscoverScreen: View {
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
         .animation(.easeInOut(duration: 0.2), value: page)
-        .appHeader("Discover") {
-            Picker("Show", selection: $page) {
-                ForEach(DiscoverModel.Page.allCases) { Text($0.rawValue).tag($0) }
+        .appHeader("Discover", chips: {
+            VStack(spacing: 8) {
+                Picker("Show", selection: $page) {
+                    ForEach(DiscoverModel.Page.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 16)
+                // Section chips live in the header so they hide and come back with it.
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(page == .live ? DiscoverSection.liveSections : DiscoverSection.videoSections) { s in
+                            let sel = page == .live ? liveSection : videoSection
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.15)) {
+                                    if page == .live { liveSection = s } else { videoSection = s }
+                                }
+                            } label: { Chip(title: s.rawValue, icon: s.icon, selected: sel == s) }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                }
             }
-            .pickerStyle(.segmented)
-        }
+        })
     }
 }
 
@@ -333,9 +351,9 @@ private struct DiscoverFeed: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                chips
                 content
             }
+            .padding(.top, 8)
         }
         .reportsScrollToHeader()
         .pullToRefresh { await refresh(force: true) }

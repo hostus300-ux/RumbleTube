@@ -234,27 +234,29 @@ struct HomeScreen: View {
     @EnvironmentObject var player: PlayerModel
     @State private var filter: ContentFilter = ContentFilter(rawValue: LibraryStore.shared.data.prefs.homeFilter) ?? .all
 
+    /// All / Videos / Live, then Rumble's sections. Part of the header, so they hide and return with it.
+    private var homeChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                FilterChips(filter: $filter)
+                if let pills = model.page?.pills, !pills.isEmpty {
+                    Divider().frame(height: 22)
+                    // Rumble's own "Live" pill duplicates the Live filter, so it's left out.
+                    ForEach(pills.filter { $0.title.caseInsensitiveCompare("Live") != .orderedSame }) { p in
+                        if let row = model.page?.rows.first(where: { $0.id == p.id }), let path = row.feedPath {
+                            NavigationLink(value: AppRoute.listing(title: p.title, path: path)) { Chip(title: p.title) }
+                                .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+        }
+    }
+
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 18) {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        FilterChips(filter: $filter)
-                        if let pills = model.page?.pills, !pills.isEmpty {
-                            Divider().frame(height: 22)
-                            // Rumble's own "Live" pill duplicates the Live filter, so it's left out.
-                            ForEach(pills.filter { $0.title.caseInsensitiveCompare("Live") != .orderedSame }) { p in
-                                if let row = model.page?.rows.first(where: { $0.id == p.id }), let path = row.feedPath {
-                                    NavigationLink(value: AppRoute.listing(title: p.title, path: path)) { Chip(title: p.title) }
-                                        .buttonStyle(.plain)
-                                }
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 12)
-                }
-                .padding(.top, 4)
-
                 if let hero = model.page?.hero.filter(filter.keep).first {
                     Button { player.play(hero) } label: { VideoCard(item: hero) }.buttonStyle(.plain)
                 }
@@ -281,7 +283,7 @@ struct HomeScreen: View {
         }
         .task(id: filter) { if filter == .videos { await model.loadVideoRows() } }
         .task { if model.fetchedAt == nil && !model.loading { await model.load() } }
-        .appHeader("Home")
+        .appHeader("Home", chips: { homeChips })
         .miniPlayerSpace()
     }
 }
@@ -697,7 +699,6 @@ struct MyFeedScreen: View {
                     signInBanner
                 }
                 channelCircles
-                pills
                 if let id = selectedTag, let tag = library.data.channelTags.first(where: { $0.id == id }) {
                     tagSection(tag)
                 } else {
@@ -712,7 +713,7 @@ struct MyFeedScreen: View {
         .task(id: "\(account.loggedIn)|\(library.data.follows.count)") { await reload() }
         .task(id: selectedTag) { if let id = selectedTag { await loadTag(id) } }
         .onChange(of: model.pill) { _ in Task { await model.loadFeed() } }
-        .appHeader("My Feed")
+        .appHeader("My Feed", chips: { pills })
         .miniPlayerSpace()
         .sheet(isPresented: $showLogin) { LoginView().environmentObject(account) }
     }
@@ -849,7 +850,7 @@ struct MyFeedScreen: View {
                         .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 12).padding(.bottom, 10)
+            .padding(.horizontal, 12)
         }
     }
 
