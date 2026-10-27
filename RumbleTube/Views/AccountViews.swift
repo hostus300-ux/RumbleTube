@@ -566,7 +566,8 @@ struct CommentsScreen: View {
                        myVote: model.myVotes[c.id] ?? 0,
                        onVote: { v in Task { await vote(c, v) } },
                        onReply: { startReply(c) },
-                       onDelete: { confirmDelete = c })
+                       onDelete: { confirmDelete = c },
+                       onRestore: { Task { await restore(c) } })
                 .id(c.id)
             if !c.replies.isEmpty {
                 if model.expanded.contains(c.id) {
@@ -665,21 +666,31 @@ struct CommentsScreen: View {
     }
 
     private func delete(_ c: RumbleComment) async {
+        func gone() -> Bool {
+            guard let still = model.page?.comment(c.id) else { return true }
+            return still.isDeleted || !still.canDelete
+        }
         do {
             try await account.delete(commentID: c.id)
             model.markDeleted(c.id)
-            // Check with Rumble that it's really gone (it answers OK even when it ignored the request).
+            // Check with Rumble (it answers OK even when it ignored a request); if it didn't take, try a form post.
             try? await Task.sleep(nanoseconds: 700_000_000)
             await model.load()
-            if let still = model.page?.comment(c.id), still.text == c.text {
-                show("Rumble didn't delete it. Try again in a moment.")
-            } else {
-                model.markDeleted(c.id)
-                show("Deleted")
+            if !gone() {
+                try await account.delete(commentID: c.id, post: true)
+                try? await Task.sleep(nanoseconds: 700_000_000)
+                await model.load()
             }
+            if gone() { model.markDeleted(c.id); show("Deleted") }
+            else { show("Rumble didn't delete it. Try again in a moment.") }
         } catch {
             show(error.localizedDescription)
         }
+    }
+
+    private func restore(_ c: RumbleComment) async {
+        do { try await account.restore(commentID: c.id); await model.load(); show("Restored") }
+        catch { show(error.localizedDescription) }
     }
 
     private func show(_ s: String) {
@@ -697,6 +708,7 @@ struct CommentRow: View {
     var onVote: (Int) -> Void
     var onReply: () -> Void
     var onDelete: () -> Void
+    var onRestore: () -> Void = {}
     @ObservedObject private var library = LibraryStore.shared
     @ObservedObject private var mute = MuteUI.shared
 
@@ -740,7 +752,11 @@ struct CommentRow: View {
                     Text("· \(comment.timeText)").font(.caption).foregroundStyle(.secondary)
                 }
                 // No text selection here: it swallows taps on timestamp links.
-                Text(SeekLinks.attributed(comment.text)).font(.subheadline)
+                if comment.isDeleted {
+                    Text("[deleted]").font(.subheadline).italic().foregroundStyle(.secondary)
+                } else {
+                    Text(SeekLinks.attributed(comment.text)).font(.subheadline)
+                }
                 HStack(spacing: 18) {
                     Button { onVote(1) } label: {
                         Label("\(comment.upVotes)", systemImage: myVote == 1 ? "hand.thumbsup.fill" : "hand.thumbsup")
@@ -751,7 +767,8 @@ struct CommentRow: View {
                     }
                     .foregroundStyle(myVote == -1 ? Color.red : .secondary)
                     if comment.canReply { Button("Reply", action: onReply).foregroundStyle(.secondary) }
-                    if comment.canDelete { Button("Delete", role: .destructive, action: onDelete) }
+                    if comment.canDelete && !comment.isDeleted { Button("Delete", role: .destructive, action: onDelete) }
+                    if isMine && comment.actions.contains("restore") { Button("Restore", action: onRestore) }
                     if !isMine {
                         Spacer(minLength: 0)
                         Menu {

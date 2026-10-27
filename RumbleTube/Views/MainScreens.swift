@@ -698,7 +698,8 @@ struct MyFeedScreen: View {
                 if !account.loggedIn {
                     signInBanner
                 }
-                channelCircles
+                // A tag tab shows only that tag's channels in the circle row.
+                if selectedTag == nil { channelCircles }
                 if let id = selectedTag, let tag = library.data.channelTags.first(where: { $0.id == id }) {
                     tagSection(tag)
                 } else {
@@ -743,6 +744,12 @@ struct MyFeedScreen: View {
         return library.data.channels(tagged: id).compactMap { followed[$0.path.lowercased()] }
     }
 
+    /// The followed-channel record (for live / recent rings), or a plain one for phone-only follows.
+    private func followed(_ ref: ChannelRef) -> FollowedChannel {
+        model.channels.first { $0.ref.path.lowercased() == ref.path.lowercased() }
+            ?? FollowedChannel(ref: ref, lastActivity: nil, liveViewers: nil, followers: nil)
+    }
+
     private func loadTag(_ id: UUID, force: Bool = false) async {
         let refs = followedTagged(id)
         guard !refs.isEmpty else { tagItems = []; return }
@@ -764,19 +771,14 @@ struct MyFeedScreen: View {
             .frame(maxWidth: .infinity).padding(40)
         } else {
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 14) {
-                    ForEach(refs) { c in
-                        Button { router.open(c) } label: {
-                            VStack(spacing: 5) {
-                                ChannelAvatar(name: c.name, url: c.avatar, size: 52, path: c.path)
-                                    .overlay(Circle().stroke(Color(hex: tag.color), lineWidth: 2.5).padding(-3))
-                                Text(c.name).font(.caption2).lineLimit(1).frame(width: 66)
-                            }
-                        }
-                        .buttonStyle(.plain)
+                LazyHStack(alignment: .top, spacing: 14) {
+                    // Same circles as the main row: red ring + LIVE when live, green when they posted recently.
+                    ForEach(refs.map(followed)) { c in
+                        Button { open(c) } label: { ChannelCircle(channel: c, recent: isRecent(c), live: liveVideo(c) != nil || c.isLive) }
+                            .buttonStyle(.plain)
                     }
                 }
-                .padding(.horizontal, 12).padding(.vertical, 8)
+                .padding(.horizontal, 12).padding(.vertical, 10)
             }
             CardGrid {
                 ForEach(tagItems) { item in

@@ -87,15 +87,32 @@ final class RumbleService {
 
     // MARK: website sections (sidebar on rumble.com)
 
-    /// rumble.com's own Trending page (most viewed today).
-    func trending(page: Int = 1) async throws -> ListingPage {
-        try await listing("/videos", page: page, query: [URLQueryItem(name: "sort", value: "views"), URLQueryItem(name: "date", value: "today")],
-                          allowWebView: false)
+    /// rumble.com's own Trending page (most viewed today). Its first pages are almost all live streams, so for
+    /// uploads it asks for the long and short lists (which leave streams out or mix them in) and keeps the uploads.
+    func trending(page: Int = 1, live: Bool) async throws -> ListingPage {
+        let base = [URLQueryItem(name: "sort", value: "views"), URLQueryItem(name: "date", value: "today")]
+        if live { return try await listing("/videos", page: page, query: base, allowWebView: false) }
+        return try await uploads(base, page: page) { ($0.viewCount ?? 0) > ($1.viewCount ?? 0) }
     }
 
-    /// The sidebar's "Latest": newest uploads this week.
-    func latest(page: Int = 1) async throws -> ListingPage {
-        try await listing("/videos", page: page, query: [URLQueryItem(name: "date", value: "this-week")], allowWebView: false)
+    /// The sidebar's "Latest": newest uploads (or streams) this week.
+    func latest(page: Int = 1, live: Bool) async throws -> ListingPage {
+        let base = [URLQueryItem(name: "date", value: "this-week")]
+        if live { return try await listing("/videos", page: page, query: base, allowWebView: false) }
+        return try await uploads(base, page: page) { ($0.publishedDate ?? .distantPast) > ($1.publishedDate ?? .distantPast) }
+    }
+
+    /// One page of uploads only: rumble.com's duration=long and duration=short lists merged, streams dropped.
+    private func uploads(_ base: [URLQueryItem], page: Int, order: @escaping (VideoItem, VideoItem) -> Bool) async throws -> ListingPage {
+        async let long = try? listing("/videos", page: page, query: base + [URLQueryItem(name: "duration", value: "long")], allowWebView: false)
+        async let short = try? listing("/videos", page: page, query: base + [URLQueryItem(name: "duration", value: "short")], allowWebView: false)
+        let (l, s) = await (long, short)
+        guard l != nil || s != nil else { throw RumbleError.noVideo }
+        var seen = Set<String>()
+        let items = ((l?.items ?? []) + (s?.items ?? []))
+            .filter { !$0.isLive && $0.upcoming != true && seen.insert($0.id).inserted }
+            .sorted(by: order)
+        return ListingPage(items: items, hasNext: (l?.hasNext ?? false) || (s?.hasNext ?? false), channel: nil, empty: items.isEmpty)
     }
 
     func browse() async throws -> [BrowseCategory] {

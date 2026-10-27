@@ -106,8 +106,9 @@ struct RootView: View {
             }
         }
         .environmentObject(shorts)
+        .background(alignment: .bottomLeading) { PiPHost() }
         .miniPlayerAccessory(enabled: useAccessory && player.item != nil && !player.expanded && router.tab != .shorts)
-        .modifier(TabBarMinimizer(enabled: prefs.minimizeTabBar))
+        .minimizingTabBar(prefs.minimizeTabBar)
         .overlay {
             if !splashGone {
                 SplashView(reveal: gate.ready)

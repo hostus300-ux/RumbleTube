@@ -124,8 +124,6 @@ final class HeaderState: ObservableObject {
 
     private func set(_ h: Bool) {
         if hidden != h { hidden = h }
-        // Scrolling back up also brings the shrunken tab bar back (iOS otherwise waits until you reach the top).
-        TabBarState.shared.setExpandedByScroll(!h)
     }
 }
 

@@ -27,6 +27,8 @@ struct RumbleComment: Identifiable, Hashable {
 
     var canReply: Bool { actions.contains("reply") }
     var canDelete: Bool { actions.contains("delete") }
+    /// Rumble keeps a deleted comment (shown as "[deleted]"; its author gets "restore" instead of "delete").
+    var isDeleted: Bool { actions.contains("restore") || text == "[deleted]" }
 }
 
 struct CommentPage {
@@ -311,6 +313,8 @@ enum AccountRequests {
         post("user.rumbles", ["type": "\(type)", "id": contentID, "vote": "\(vote)"])
     }
     static func deleteComment(_ id: String) -> URLRequest { get("comment.delete", ["comment_id": id]) }
+    static func deleteCommentPost(_ id: String) -> URLRequest { post("comment.delete", ["comment_id": id]) }
+    static func restoreComment(_ id: String) -> URLRequest { get("comment.restore", ["comment_id": id]) }
 
     /// "$$.user={username:"name",logged_in:true}" on any rumble.com page.
     static func username(fromPage html: String) -> String? {

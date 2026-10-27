@@ -252,19 +252,21 @@ enum DiscoverSection: String, CaseIterable, Identifiable {
 @MainActor
 final class DiscoverSiteFeeds: ObservableObject {
     static let shared = DiscoverSiteFeeds()
-    let trending = ListingModel { try await RumbleService.shared.trending(page: $0) }
+    let trendingVideos = ListingModel { try await RumbleService.shared.trending(page: $0, live: false) }
+    let trendingLive = ListingModel { try await RumbleService.shared.trending(page: $0, live: true) }
     let editorPicks = ListingModel { try await RumbleService.shared.listing("/editor-picks", page: $0, allowWebView: false) }
-    let latest = ListingModel { try await RumbleService.shared.latest(page: $0) }
+    let latestVideos = ListingModel { try await RumbleService.shared.latest(page: $0, live: false) }
+    let latestLive = ListingModel { try await RumbleService.shared.latest(page: $0, live: true) }
     @Published private(set) var categories: [BrowseCategory] = []
     @Published private(set) var featured: [FeaturedChannel] = []
     @Published private(set) var loading = false
     @Published var error: String?
 
-    func listing(_ s: DiscoverSection) -> ListingModel? {
+    func listing(_ s: DiscoverSection, live: Bool) -> ListingModel? {
         switch s {
-        case .trending: return trending
+        case .trending: return live ? trendingLive : trendingVideos
         case .editorPicks: return editorPicks
-        case .latest: return latest
+        case .latest: return live ? latestLive : latestVideos
         default: return nil
         }
     }
@@ -304,12 +306,18 @@ struct DiscoverScreen: View {
 
     var body: some View {
         // The pages fill the screen and scroll underneath the header (title + Videos / Live).
-        TabView(selection: $page) {
-            DiscoverFeed(page: .videos, section: $videoSection).tag(DiscoverModel.Page.videos)
-            DiscoverFeed(page: .live, section: $liveSection).tag(DiscoverModel.Page.live)
+        // A plain switch (not a paging TabView): paging views don't pass the header's space down to the
+        // scroll views inside, which left black gaps above and below the lists.
+        Group {
+            if page == .videos {
+                DiscoverFeed(page: .videos, section: $videoSection)
+            } else {
+                DiscoverFeed(page: .live, section: $liveSection)
+            }
         }
-        .tabViewStyle(.page(indexDisplayMode: .never))
-        .animation(.easeInOut(duration: 0.2), value: page)
+        .id(page)
+        .transition(.opacity)
+        .animation(.easeInOut(duration: 0.15), value: page)
         .appHeader("Discover", chips: {
             VStack(spacing: 8) {
                 Picker("Show", selection: $page) {
@@ -378,7 +386,7 @@ private struct DiscoverFeed: View {
     @ViewBuilder private var content: some View {
         if let sort = section.ranked {
             rankedList(model.list(page, sort))
-        } else if let feed = site.listing(section) {
+        } else if let feed = site.listing(section, live: page == .live) {
             // rumble.com's lists mix uploads and streams: each page shows only its own kind.
             SiteListing(model: feed, live: page == .live)
         } else if section == .browse {
@@ -390,7 +398,7 @@ private struct DiscoverFeed: View {
 
     private func refresh(force: Bool) async {
         if section.ranked != nil { await model.refresh(force: force) }
-        else if let feed = site.listing(section) {
+        else if let feed = site.listing(section, live: page == .live) {
             if force || !feed.loadedOnce { await feed.reload() }
         } else if section == .browse { await site.loadBrowse(force: force) }
         else if section == .featured { await site.loadFeatured(force: force) }

@@ -496,8 +496,8 @@ struct MiniPlayer: View {
     }
 }
 
-/// The mini player's picture: the live video (so a long-press can start picture-in-picture), or the
-/// plain thumbnail while loading / in audio-only. No time badge: it doesn't fit.
+/// The mini player's picture: the plain thumbnail (no time badge: it doesn't fit). A long-press starts
+/// picture-in-picture through the hidden `PiPHost` layer.
 struct MiniPlayerArt: View {
     let item: VideoItem
     @EnvironmentObject var player: PlayerModel
@@ -507,10 +507,6 @@ struct MiniPlayerArt: View {
             Color.black
             if let t = player.detail?.thumbnail ?? item.thumbnail, let u = URL(string: t) {
                 AsyncImage(url: u) { $0.image?.resizable().scaledToFill() }
-            }
-            if player.stream != nil && !player.audioOnly && player.error == nil {
-                PlayerSurface(player: player.player, fill: true, enablePiP: true)
-                    .allowsHitTesting(false)
             }
         }
         .clipped()
@@ -620,10 +616,30 @@ struct MiniPlayerAccessory: View {
             }
             .contentShape(Rectangle())
             .onTapGesture { if player.miniPlayerArmed { player.expanded = true } }
-            .miniPlayerSwipe(dragX: $dragX, player: player)
+            // The tab-bar accessory is drawn by iOS, so it can't be dragged around; a swipe still works.
+            .gesture(DragGesture(minimumDistance: 20).onEnded { v in
+                if v.translation.height < -30 && abs(v.translation.width) < 60 { player.expanded = true }
+                else if v.translation.width > 80 && abs(v.translation.height) < 60 { withAnimation(.easeOut(duration: 0.2)) { player.close() } }
+            })
         }
     }
 }
 #else
 struct MiniPlayerAccessory: View { var body: some View { EmptyView() } }
 #endif
+
+
+/// A tiny, nearly invisible video layer that stays on screen while the mini player is showing, so
+/// picture-in-picture can start from it (iOS needs a live player layer for PiP).
+struct PiPHost: View {
+    @EnvironmentObject var player: PlayerModel
+    var body: some View {
+        if player.item != nil && !player.expanded && player.stream != nil && !player.audioOnly && player.error == nil {
+            PlayerSurface(player: player.player, fill: true, enablePiP: true)
+                .frame(width: 4, height: 4)
+                .opacity(0.02)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+    }
+}

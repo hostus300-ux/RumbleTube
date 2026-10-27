@@ -180,8 +180,15 @@ final class AccountStore: ObservableObject {
         _ = try AccountRequests.parseResult(data).get()
     }
 
-    func delete(commentID: String) async throws {
-        let (data, code) = try await send(AccountRequests.deleteComment(commentID))
+    /// `post: true` sends it as a form post (used as a second try when the plain request didn't take).
+    func delete(commentID: String, post: Bool = false) async throws {
+        let (data, code) = try await send(post ? AccountRequests.deleteCommentPost(commentID) : AccountRequests.deleteComment(commentID))
+        guard code == 200 else { throw AccountError.http(code) }
+        _ = try AccountRequests.parseResult(data).get()
+    }
+
+    func restore(commentID: String) async throws {
+        let (data, code) = try await send(AccountRequests.restoreComment(commentID))
         guard code == 200 else { throw AccountError.http(code) }
         _ = try AccountRequests.parseResult(data).get()
     }
