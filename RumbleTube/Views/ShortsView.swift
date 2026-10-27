@@ -19,6 +19,10 @@ final class ShortsModel: ObservableObject {
     }
     /// Pause every Shorts feed (main tab and followed-creators) when the main player starts.
     static func pauseAll() { instances.allObjects.forEach { $0.pauseForMainPlayer() } }
+    /// A short is playing with sound right now (the main player mustn't hand the audio away then).
+    static var anyPlayingAudibly: Bool {
+        instances.allObjects.contains { m in m.active && !m.muted && !m.paused }
+    }
 
     @Published private(set) var items: [ShortItem] = []
     @Published var index = 0 { didSet { if index != oldValue { indexChanged(from: oldValue) } } }
@@ -42,7 +46,7 @@ final class ShortsModel: ObservableObject {
 
     private var offset = 0
     private var hasMore = true
-    private var active = false
+    private(set) var active = false
     private var decidedMute = false
     private var players: [String: AVQueuePlayer] = [:]
     private var loopers: [String: AVPlayerLooper] = [:]

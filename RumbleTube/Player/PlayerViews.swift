@@ -450,7 +450,8 @@ struct MiniPlayer: View {
             Group {
                 if GlassUI.available && library.data.prefs.liquidGlass {
                     bar(item)
-                        .overlay(alignment: .bottom) { progress.padding(.horizontal, 16) }
+                        // Kept inside the card's rounded bottom edge.
+                        .overlay(alignment: .bottom) { progress.clipShape(Capsule()).padding(.horizontal, 22).padding(.bottom, 4) }
                         .glassCard(22, interactive: true)
                         .padding(.horizontal, 10).padding(.bottom, 6)
                 } else {

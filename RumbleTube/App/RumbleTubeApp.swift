@@ -89,6 +89,8 @@ struct RootView: View {
     @EnvironmentObject var account: AccountStore
     /// Not observed here: Shorts publishes progress several times a second, which would redraw the whole app.
     private let shorts = ShortsModel.shared
+    /// Only flips when you change scroll direction, so redrawing the tab bar then is cheap.
+    @ObservedObject private var tabBar = TabBarState.shared
     @StateObject private var gate = LaunchGate()
     @State private var splashGone = false
     /// Your Rumble profile picture, drawn as a small circle for the "Me" tab.
@@ -109,7 +111,8 @@ struct RootView: View {
         .environmentObject(shorts)
         .background(alignment: .bottomLeading) { PiPHost() }
         .miniPlayerAccessory(enabled: useAccessory && player.item != nil && !player.expanded && router.tab != .shorts)
-        .minimizingTabBar(prefs.minimizeTabBar)
+        // Rumble-style shrinking (labels hide while scrolling down) instead of iOS's collapse to one button.
+        .minimizingTabBar(false)
         .overlay {
             if !splashGone {
                 SplashView(reveal: gate.ready)
@@ -199,25 +202,25 @@ struct RootView: View {
                 .navigationDestination(for: AppRoute.self) { $0.screen }
         }
         .overlay(alignment: .bottom) { if t != .shorts && !useAccessory { MiniPlayer() } }
-        .tabItem {
-            if t == .account, let img = meIcon {
-                Label { Text(t.title) } icon: { Image(uiImage: img).renderingMode(.original) }
-            } else {
-                // Outline glyphs like Rumble's own tab bar (iOS fills tab symbols by default).
-                Label { Text(t.title) } icon: { t.image }
-            }
-        }
+        .tabItem { TabLabel(tab: t, meIcon: meIcon, compact: prefs.minimizeTabBar && tabBar.compact) }
         .tag(t)
     }
 }
 
 
-/// Shrinks the tab bar while scrolling down and switches shrinking off on a scroll up, which makes
-/// iOS bring the full tab bar straight back.
-private struct TabBarMinimizer: ViewModifier {
-    let enabled: Bool
-    @ObservedObject private var state = TabBarState.shared
-    func body(content: Content) -> some View {
-        content.minimizingTabBar(enabled && !state.keepExpanded)
+/// A tab's icon and title; the title hides while you scroll down (like Rumble's app), so the bar gets slimmer.
+private struct TabLabel: View {
+    let tab: AppTab
+    let meIcon: UIImage?
+    let compact: Bool
+
+    var body: some View {
+        let showTitle = !compact
+        if tab == .account, let img = meIcon {
+            Label { if showTitle { Text(tab.title) } } icon: { Image(uiImage: img).renderingMode(.original) }
+        } else {
+            // Outline glyphs like Rumble's own tab bar (iOS fills tab symbols by default).
+            Label { if showTitle { Text(tab.title) } } icon: { tab.image }
+        }
     }
 }

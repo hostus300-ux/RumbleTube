@@ -126,6 +126,8 @@ final class HeaderState: ObservableObject {
 
     private func set(_ h: Bool) {
         if hidden != h { hidden = h }
+        // Rumble-style tab bar: icons only while scrolling down, labels back on the way up.
+        TabBarState.shared.setCompact(h)
     }
 }
 
@@ -133,8 +135,11 @@ final class HeaderState: ObservableObject {
 @MainActor
 final class TabBarState: ObservableObject {
     static let shared = TabBarState()
-    @Published private(set) var keepExpanded = true
-    func setExpandedByScroll(_ up: Bool) { if keepExpanded != up { keepExpanded = up } }
+    @Published private(set) var compact = false
+    func setCompact(_ c: Bool) {
+        guard compact != c else { return }
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { compact = c }
+    }
 }
 
 private struct HeaderStateKey: EnvironmentKey { static let defaultValue: HeaderState? = nil }

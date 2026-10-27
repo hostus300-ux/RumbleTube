@@ -108,8 +108,9 @@ final class PlayerModel: ObservableObject {
                 if status == .paused, AppAudio.ownsAudio {
                     self.releaseTask = Task { @MainActor [weak self] in
                         try? await Task.sleep(nanoseconds: 1_500_000_000)
+                        // Shorts pause the main player and take the audio: releasing it then cut the short off.
                         guard !Task.isCancelled, let self, self.player.timeControlStatus == .paused,
-                              self.pip?.isPictureInPictureActive != true else { return }
+                              self.pip?.isPictureInPictureActive != true, !ShortsModel.anyPlayingAudibly else { return }
                         AppAudio.release()
                     }
                 }
