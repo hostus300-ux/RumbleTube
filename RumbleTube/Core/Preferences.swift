@@ -152,6 +152,8 @@ struct AppPreferences: Codable, Equatable {
     var autoplay = true
     /// Tab bar shrinks while scrolling (iOS 26).
     var minimizeTabBar = true
+    /// iOS 26.1+: dock the mini player inside the tab bar (Apple Music style) instead of a floating card you can swipe away.
+    var dockedMiniPlayer = false
     /// Landing view for each tab.
     var homeFilter = "All"
     var discoverPage = "Videos"
@@ -185,7 +187,7 @@ struct AppPreferences: Codable, Equatable {
     enum CodingKeys: String, CodingKey {
         case tabs, theme, accent, gestures, seekSeconds, boostRate, defaultRate, rotateToFullscreen
         case shortsMutedWhenOtherAudio, autoplayShorts, liquidGlass, downloadHeight, liveAlerts
-        case audioOnly, audioOnlySticky, autoplay, minimizeTabBar, homeFilter, discoverPage, discoverSort, myFeedPill
+        case audioOnly, audioOnlySticky, autoplay, minimizeTabBar, dockedMiniPlayer, homeFilter, discoverPage, discoverSort, myFeedPill
         case showCreateButton = "createButtonOn"   // renamed so the old default (on) is not carried over
     }
 
@@ -217,6 +219,7 @@ struct AppPreferences: Codable, Equatable {
         audioOnlySticky = (try? c.decodeIfPresent(Bool.self, forKey: .audioOnlySticky)) ?? d.audioOnlySticky
         autoplay = (try? c.decodeIfPresent(Bool.self, forKey: .autoplay)) ?? d.autoplay
         minimizeTabBar = (try? c.decodeIfPresent(Bool.self, forKey: .minimizeTabBar)) ?? d.minimizeTabBar
+        dockedMiniPlayer = (try? c.decodeIfPresent(Bool.self, forKey: .dockedMiniPlayer)) ?? d.dockedMiniPlayer
         homeFilter = (try? c.decodeIfPresent(String.self, forKey: .homeFilter)) ?? d.homeFilter
         discoverPage = (try? c.decodeIfPresent(String.self, forKey: .discoverPage)) ?? d.discoverPage
         discoverSort = (try? c.decodeIfPresent(String.self, forKey: .discoverSort)) ?? d.discoverSort

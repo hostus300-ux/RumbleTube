@@ -95,7 +95,8 @@ struct RootView: View {
     @State private var meIcon: UIImage?
 
     private var prefs: AppPreferences { library.data.prefs }
-    private var useAccessory: Bool { GlassUI.accessoryAvailable && prefs.liquidGlass }
+    /// Docked in the tab bar only when chosen in Settings; the floating card can be swiped away as a whole.
+    private var useAccessory: Bool { GlassUI.accessoryAvailable && prefs.liquidGlass && prefs.dockedMiniPlayer }
     private var scheme: ColorScheme? { prefs.theme == .system ? nil : (prefs.theme == .dark ? .dark : .light) }
 
     var body: some View {

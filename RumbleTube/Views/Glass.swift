@@ -21,7 +21,9 @@ enum GlassUI {
         #endif
         return false
     }
-    @MainActor static var usesAccessory: Bool { accessoryAvailable && LibraryStore.shared.data.prefs.liquidGlass }
+    @MainActor static var usesAccessory: Bool {
+        accessoryAvailable && LibraryStore.shared.data.prefs.liquidGlass && LibraryStore.shared.data.prefs.dockedMiniPlayer
+    }
 }
 
 private struct GlassShape<S: Shape>: ViewModifier {
