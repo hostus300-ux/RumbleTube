@@ -97,8 +97,8 @@ struct RootView: View {
     @State private var meIcon: UIImage?
 
     private var prefs: AppPreferences { library.data.prefs }
-    /// Docked in the tab bar only when chosen in Settings; the floating card can be swiped away as a whole.
-    private var useAccessory: Bool { GlassUI.accessoryAvailable && prefs.liquidGlass && prefs.dockedMiniPlayer }
+    /// The app draws its own tab bar (so it can shrink like Rumble's), so the mini player always floats above it.
+    private var useAccessory: Bool { false }
     private var scheme: ColorScheme? { prefs.theme == .system ? nil : (prefs.theme == .dark ? .dark : .light) }
 
     var body: some View {
@@ -110,9 +110,17 @@ struct RootView: View {
         }
         .environmentObject(shorts)
         .background(alignment: .bottomLeading) { PiPHost() }
-        .miniPlayerAccessory(enabled: useAccessory && player.item != nil && !player.expanded && router.tab != .shorts)
-        // Rumble-style shrinking (labels hide while scrolling down) instead of iOS's collapse to one button.
-        .minimizingTabBar(false)
+        // Rumble-style tab bar: full with labels, slimming to an icons-only pill while you scroll down.
+        .overlay(alignment: .bottom) {
+            VStack(spacing: 6) {
+                if router.tab != .shorts { MiniPlayer() }
+                RumbleTabBar(tabs: tabs, selection: $router.tab, meIcon: meIcon,
+                             compact: prefs.minimizeTabBar && tabBar.compact) { t in
+                    router.paths[t] = NavigationPath()      // tap the current tab again: back to its first page
+                }
+            }
+            .ignoresSafeArea(.keyboard, edges: .bottom)   // stays put (behind the keyboard) while typing
+        }
         .overlay {
             if !splashGone {
                 SplashView(reveal: gate.ready)
@@ -138,7 +146,10 @@ struct RootView: View {
         }
         .onChange(of: prefs.accent) { a in Theme.accentHex = a.hex }
         .onChange(of: tabs) { t in if !t.contains(router.tab) { router.tab = t.first ?? .account } }
-        .onChange(of: router.tab) { t in updateShorts(tab: t, expanded: player.expanded, minimizing: false) }
+        .onChange(of: router.tab) { t in
+            updateShorts(tab: t, expanded: player.expanded, minimizing: false)
+            TabBarState.shared.setCompact(false)      // a new tab starts with the full bar
+        }
         .onChange(of: player.expanded) { e in updateShorts(tab: router.tab, expanded: e, minimizing: !e) }
         .muteSheetHost(active: !player.expanded)
         .tagSheetHost(active: !player.expanded)
@@ -201,26 +212,79 @@ struct RootView: View {
                 .navigationDestination(for: CommentTarget.self) { CommentsScreen(target: $0).miniPlayerSpace() }
                 .navigationDestination(for: AppRoute.self) { $0.screen }
         }
-        .overlay(alignment: .bottom) { if t != .shorts && !useAccessory { MiniPlayer() } }
-        .tabItem { TabLabel(tab: t, meIcon: meIcon, compact: prefs.minimizeTabBar && tabBar.compact) }
+        .toolbar(.hidden, for: .tabBar)
+        // Room for the app's own tab bar (fixed, so pages don't jump when it slims down).
+        .safeAreaInset(edge: .bottom, spacing: 0) { Color.clear.frame(height: RumbleTabBar.reservedHeight) }
         .tag(t)
     }
 }
 
 
-/// A tab's icon and title; the title hides while you scroll down (like Rumble's app), so the bar gets slimmer.
-private struct TabLabel: View {
-    let tab: AppTab
+/// The app's tab bar, drawn like Rumble's: icons with labels, shrinking to a slim icons-only pill while you
+/// scroll down and growing back as soon as you scroll up.
+struct RumbleTabBar: View {
+    static let reservedHeight: CGFloat = 64
+    let tabs: [AppTab]
+    @Binding var selection: AppTab
     let meIcon: UIImage?
     let compact: Bool
+    var onReselect: (AppTab) -> Void = { _ in }
 
     var body: some View {
-        let showTitle = !compact
-        if tab == .account, let img = meIcon {
-            Label { if showTitle { Text(tab.title) } } icon: { Image(uiImage: img).renderingMode(.original) }
+        HStack(spacing: compact ? 2 : 0) {
+            ForEach(tabs) { t in
+                Button {
+                    if selection == t { onReselect(t) } else { selection = t }
+                    UISelectionFeedbackGenerator().selectionChanged()
+                } label: { item(t) }
+                .buttonStyle(.plain)
+                .accessibilityLabel(t.title)
+                .accessibilityAddTraits(selection == t ? .isSelected : [])
+            }
+        }
+        .padding(.horizontal, compact ? 8 : 6)
+        .padding(.vertical, compact ? 5 : 6)
+        .background { barBackground }
+        .padding(.horizontal, compact ? 0 : 14)
+        .frame(maxWidth: compact ? nil : .infinity)
+        .padding(.bottom, 2)
+        .animation(.spring(response: 0.38, dampingFraction: 0.82), value: compact)
+        .animation(.easeInOut(duration: 0.15), value: selection)
+    }
+
+    @ViewBuilder private var barBackground: some View {
+        if GlassUI.enabled {
+            Capsule().fill(.clear).glassCapsule(interactive: false)
         } else {
-            // Outline glyphs like Rumble's own tab bar (iOS fills tab symbols by default).
-            Label { if showTitle { Text(tab.title) } } icon: { tab.image }
+            Capsule().fill(.ultraThinMaterial)
+                .overlay(Capsule().stroke(Color.white.opacity(0.08), lineWidth: 0.5))
+                .shadow(color: .black.opacity(0.25), radius: 10, y: 3)
+        }
+    }
+
+    private func item(_ t: AppTab) -> some View {
+        let on = selection == t
+        return VStack(spacing: 2) {
+            icon(t).frame(width: compact ? 24 : 24, height: 24)
+            if !compact {
+                Text(t.title).font(.system(size: 10, weight: .semibold)).lineLimit(1)
+                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
+            }
+        }
+        .foregroundStyle(on ? Color.accentColor : Color.primary)
+        .frame(width: compact ? 46 : nil, height: compact ? 38 : 48)
+        .frame(maxWidth: compact ? nil : .infinity)
+        .background {
+            if on { Capsule().fill(Color.primary.opacity(0.1)) }
+        }
+        .contentShape(Capsule())
+    }
+
+    @ViewBuilder private func icon(_ t: AppTab) -> some View {
+        if t == .account, let img = meIcon {
+            Image(uiImage: img).resizable().scaledToFill().frame(width: 24, height: 24).clipShape(Circle())
+        } else {
+            t.image.resizable().scaledToFit().frame(width: 22, height: 22)
         }
     }
 }

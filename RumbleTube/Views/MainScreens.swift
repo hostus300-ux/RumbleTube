@@ -57,7 +57,7 @@ struct MiniPlayerSpace: ViewModifier {
     func body(content: Content) -> some View {
         content.safeAreaInset(edge: .bottom, spacing: 0) {
             // In the tab-bar accessory the system already makes room for the player.
-            if player.item != nil && !(GlassUI.accessoryAvailable && library.data.prefs.liquidGlass) {
+            if player.item != nil && !GlassUI.usesAccessory {
                 Color.clear.frame(height: GlassUI.available && library.data.prefs.liquidGlass ? 78 : 66)
             }
         }

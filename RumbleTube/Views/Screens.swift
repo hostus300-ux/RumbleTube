@@ -148,9 +148,7 @@ struct SettingsView: View {
             Section {
                 Toggle("Show + (upload / go live) button", isOn: pref(\.showCreateButton))
                 Toggle("Shrink tab bar while scrolling", isOn: pref(\.minimizeTabBar))
-                if GlassUI.accessoryAvailable {
-                    Toggle("Dock mini player in the tab bar", isOn: pref(\.dockedMiniPlayer))
-                }
+
                 Toggle("Liquid Glass", isOn: pref(\.liquidGlass))
                     .disabled(!GlassUI.available)
                 NavigationLink { CustomIconView().miniPlayerSpace() } label: { Text("App icon") }

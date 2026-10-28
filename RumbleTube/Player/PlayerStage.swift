@@ -124,6 +124,7 @@ struct PlayerStage: View {
     @State private var controlsVisible = true
     @State private var hideTask: Task<Void, Never>?
     @State private var flash: Flash?
+    @State private var seekStreak: SeekStreak?
     @State private var scrubbing: Double?
     @State private var boostedByHold = false
     @GestureState private var holding = false
@@ -241,7 +242,7 @@ struct PlayerStage: View {
                 .contentShape(Rectangle())
                 .gesture(
                     SpatialTapGesture(count: 2).onEnded { v in doubleTap(at: v.location.x, width: g.size.width) }
-                        .exclusively(before: SpatialTapGesture(count: 1).onEnded { _ in toggleControls() })
+                        .exclusively(before: SpatialTapGesture(count: 1).onEnded { v in singleTap(at: v.location.x, width: g.size.width) })
                 )
                 .simultaneousGesture(longPressGesture)
                 .simultaneousGesture(
@@ -273,9 +274,21 @@ struct PlayerStage: View {
         return AnyGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in run(.longPress) }.map { _ in () })
     }
 
-    private func doubleTap(at x: CGFloat, width: CGFloat) {
-        let zone: PlayerGesture = x < width / 3 ? .doubleTapLeft : (x > width * 2 / 3 ? .doubleTapRight : .doubleTapCenter)
-        run(zone)
+    private func zone(_ x: CGFloat, _ width: CGFloat) -> PlayerGesture {
+        x < width / 3 ? .doubleTapLeft : (x > width * 2 / 3 ? .doubleTapRight : .doubleTapCenter)
+    }
+
+    private func doubleTap(at x: CGFloat, width: CGFloat) { run(zone(x, width)) }
+
+    /// Like YouTube: right after a double-tap seek, single taps on the same side keep seeking.
+    private func singleTap(at x: CGFloat, width: CGFloat) {
+        let z = zone(x, width)
+        if let s = seekStreak, Date().timeIntervalSince(s.at) < 0.9,
+           (z == .doubleTapLeft && s.side == -1) || (z == .doubleTapRight && s.side == 1) {
+            run(z)
+        } else {
+            toggleControls()
+        }
     }
 
     private func run(_ g: PlayerGesture) {
@@ -283,8 +296,8 @@ struct PlayerStage: View {
         guard action != .none else { return }
         let side = g == .doubleTapLeft ? -1 : (g == .doubleTapRight ? 1 : 0)
         switch action {
-        case .seekBack: showFlash("\(prefs.seekSeconds)s", "backward.fill", side == 0 ? -1 : side)
-        case .seekForward: showFlash("\(prefs.seekSeconds)s", "forward.fill", side == 0 ? 1 : side)
+        case .seekBack: addToStreak(-1)
+        case .seekForward: addToStreak(1)
         case .playPause: showFlash(player.isPlaying ? "Paused" : "Play", player.isPlaying ? "pause.fill" : "play.fill", 0)
         case .skipSegment: showFlash("Skip", "forward.end.fill", side)
         default: break
@@ -457,7 +470,53 @@ struct PlayerStage: View {
 
     // MARK: overlays
 
+    // MARK: seek streak (10 → 20 → 30 … while you keep tapping one side)
+
+    struct SeekStreak: Equatable { var side: Int; var seconds: Int; var at: Date; var taps: Int }
+
+    private func addToStreak(_ side: Int) {
+        let step = prefs.seekSeconds
+        var s = seekStreak
+        if let cur = s, cur.side == side, Date().timeIntervalSince(cur.at) < 0.9 {
+            s = SeekStreak(side: side, seconds: cur.seconds + step, at: Date(), taps: cur.taps + 1)
+        } else {
+            s = SeekStreak(side: side, seconds: step, at: Date(), taps: 1)
+        }
+        withAnimation(.easeOut(duration: 0.12)) { seekStreak = s }
+        let mark = s
+        Task {
+            try? await Task.sleep(nanoseconds: 950_000_000)
+            if seekStreak == mark { withAnimation(.easeOut(duration: 0.25)) { seekStreak = nil } }
+        }
+    }
+
+    @ViewBuilder private var seekStreakView: some View {
+        if let s = seekStreak {
+            HStack {
+                if s.side == 1 { Spacer() }
+                VStack(spacing: 6) {
+                    SeekArrows(forward: s.side == 1, pulse: s.taps)
+                    Text("\(s.seconds) seconds").font(.caption.weight(.bold)).monospacedDigit()
+                        .contentTransition(.numericText())
+                }
+                .foregroundStyle(.white)
+                .frame(width: 130, height: 110)
+                .background(
+                    Ellipse().fill(Color.black.opacity(0.35))
+                        .frame(width: 260, height: 300)
+                        .offset(x: s.side == 1 ? 60 : -60)
+                )
+                .clipped()
+                .padding(.horizontal, 10)
+                if s.side == -1 { Spacer() }
+            }
+            .allowsHitTesting(false)
+            .transition(.opacity)
+        }
+    }
+
     @ViewBuilder private var flashView: some View {
+        seekStreakView
         if let f = flash {
             HStack {
                 if f.side == 1 { Spacer() }
@@ -565,5 +624,32 @@ struct FullscreenPlayer: View {
             .persistentSystemOverlays(.hidden)
             .onAppear { OrientationLock.set(.landscape) }
             .onDisappear { OrientationLock.set(.portrait) }
+    }
+}
+
+
+/// Three chevrons that light up in sequence toward the seek direction (YouTube-style), replaying on every tap.
+private struct SeekArrows: View {
+    let forward: Bool
+    let pulse: Int
+    @State private var phase = 0
+
+    var body: some View {
+        HStack(spacing: -4) {
+            ForEach(0..<3) { i in
+                let idx = forward ? i : 2 - i
+                Image(systemName: forward ? "play.fill" : "play.fill")
+                    .font(.system(size: 13, weight: .bold))
+                    .scaleEffect(x: forward ? 1 : -1)
+                    .opacity(phase == idx ? 1 : 0.35)
+            }
+        }
+        .task(id: pulse) {
+            for step in 0..<3 {
+                phase = step
+                try? await Task.sleep(nanoseconds: 110_000_000)
+            }
+            phase = 3
+        }
     }
 }

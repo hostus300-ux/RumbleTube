@@ -143,12 +143,20 @@ final class RumbleService {
     }
 
     func home() async throws -> HomePage {
-        do {
+        func fetch() async throws -> HomePage {
             let (data, code) = try await RumbleHTTP.get(URL(string: "https://rumble.com/")!)
             guard code == 200 else { throw RumbleError.http(code) }
             let page = try HomeParser.parse(String(decoding: data, as: UTF8.self))
             if !page.rows.isEmpty || !page.hero.isEmpty { return page }
             throw RumbleError.noVideo
+        }
+        do {
+            do { return try await fetch() }
+            catch {
+                // One quick retry: a single refused request used to drop Home to the fallback (no category chips).
+                try await Task.sleep(nanoseconds: 800_000_000)
+                return try await fetch()
+            }
         } catch {
             // The homepage is sometimes refused (e.g. some VPNs / networks get 403) while listing pages
             // still work: build Home from those instead of showing an error.
@@ -167,6 +175,10 @@ final class RumbleService {
             ("news", "News", "/category/news"),
             ("podcasts", "Podcasts", "/category/podcasts"),
             ("viral", "Viral", "/category/viral"),
+            ("sports", "Sports", "/category/sports"),
+            ("gaming", "Gaming", "/category/gaming"),
+            ("finance", "Finance & Crypto", "/category/finance"),
+            ("entertainment", "Entertainment", "/category/entertainment"),
         ]
         var rows: [HomeRow] = []
         await withTaskGroup(of: (Int, HomeRow?).self) { g in
@@ -184,7 +196,9 @@ final class RumbleService {
             rows = got.sorted { $0.0 < $1.0 }.map(\.1)
         }
         guard !rows.isEmpty else { return nil }
-        return HomePage(hero: Array(rows[0].items.prefix(1)), rows: rows, pills: [])
+        // Chips for the sections we did load (Live is already a filter chip).
+        let pills = rows.filter { $0.id != "live" }.map { HomePill(id: $0.id, title: $0.title) }
+        return HomePage(hero: Array(rows[0].items.prefix(1)), rows: rows, pills: pills)
     }
 
     func channel(_ path: String, page: Int = 1, maxAge: TimeInterval = 600) async throws -> ListingPage {

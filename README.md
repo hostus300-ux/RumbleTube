@@ -1,6 +1,6 @@
 # RumbleTube
 
-[**⬇︎ Download the latest IPA**](https://github.com/hostus300-ux/RumbleTube/releases/download/latest/RumbleTube.ipa) · current version 0.14.3
+[**⬇︎ Download the latest IPA**](https://github.com/hostus300-ux/RumbleTube/releases/download/latest/RumbleTube.ipa) · current version 0.15.0
 
 An unofficial iPhone client for Rumble that works like the YouTube app, with **RumbleSkip** (SponsorBlock-style skipping) built in. On your home screen it shows up as **Rumble**.
 
@@ -43,7 +43,7 @@ An unofficial iPhone client for Rumble that works like the YouTube app, with **R
 
 **Player**
 - Custom controls with YouTube-style gestures, which you can remap in Settings → Tweaks → Gestures. Defaults:
-  - Double-tap the sides to rewind or skip ahead.
+  - Double-tap the sides to rewind or skip ahead. Keep tapping the same side to add more (10 → 20 → 30 s, shown on screen with arrows); taps are combined into one jump so it never stalls.
   - Hold for a speed boost.
   - Swipe up for fullscreen.
   - Pinch to zoom.
@@ -83,7 +83,7 @@ An unofficial iPhone client for Rumble that works like the YouTube app, with **R
 - **Report a problem:** in Settings. It shares a log of what failed, without passwords, cookies or what you searched for.
 
 **Look**
-- Built for iOS 26 **Liquid Glass**: glass header buttons, filter chips, a floating mini player, and a tab bar that shrinks while you scroll. You can switch it off in Settings.
+- Built for iOS 26 **Liquid Glass**: glass header buttons, a floating mini player, and a Rumble-style tab bar that slims to an icons-only pill while you scroll down and grows back when you scroll up. You can switch it off in Settings.
 - Light/dark theme and accent colours.
 - The app icon has dark and tinted versions, so it matches tinted and clear home screens.
 

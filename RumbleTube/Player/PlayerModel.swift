@@ -327,8 +327,9 @@ final class PlayerModel: ObservableObject {
 
     // MARK: - Gestures & speed
 
+    /// Double-tap seeking. Rapid taps add up on a target, and only one seek is sent once you pause for a moment,
+    /// so a burst of taps can't pile up a queue of seeks that freezes the video.
     func seek(by delta: Double) {
-        // Repeated taps stack from where the last tap aimed, not from a position the seek hasn't reached yet.
         let base = (Date().timeIntervalSince(lastRelativeSeek) < 1.2 ? lastRelativeTarget : nil) ?? player.currentTime().seconds
         var t = base + delta
         if isLive {
@@ -339,10 +340,18 @@ final class PlayerModel: ObservableObject {
         }
         lastRelativeTarget = t
         lastRelativeSeek = Date()
-        seek(to: t, precise: true)
+        currentTime = t                         // the scrubber jumps right away
+        pendingSeek?.cancel()
+        pendingSeek = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 280_000_000)
+            guard !Task.isCancelled, let self else { return }
+            self.player.currentItem?.cancelPendingSeeks()
+            self.seek(to: t, precise: true)
+        }
     }
     private var lastRelativeTarget: Double?
     private var lastRelativeSeek = Date.distantPast
+    private var pendingSeek: Task<Void, Never>?
 
     // MARK: - Live DVR
 

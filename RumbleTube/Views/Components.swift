@@ -546,14 +546,48 @@ actor AvatarLookupGate {
     }
 }
 
-/// Rumble's green verified check, shown after verified creators' names.
+/// Verified creators: a green rounded play-shape with a check, in the spirit of rumble.com's badge
+/// (drawn for this app, not copied).
 struct VerifiedBadge: View {
     var size: CGFloat = 14
     var body: some View {
-        Image(systemName: "checkmark.seal.fill")
-            .font(.system(size: size, weight: .semibold))
-            .foregroundStyle(Color(hex: 0x74CC1D))
-            .accessibilityLabel("Verified")
+        ZStack {
+            RoundedPlayShape().fill(Color(hex: 0x74CC1D))
+            CheckShape()
+                .stroke(Color(hex: 0x0E1A06), style: StrokeStyle(lineWidth: size * 0.13, lineCap: .round, lineJoin: .round))
+                .padding(size * 0.27)
+                .offset(x: -size * 0.04)
+        }
+        .frame(width: size * 1.08, height: size)
+        .accessibilityElement()
+        .accessibilityLabel("Verified")
+    }
+}
+
+/// A play triangle with generously rounded corners.
+struct RoundedPlayShape: Shape {
+    func path(in r: CGRect) -> Path {
+        let a = CGPoint(x: r.minX + r.width * 0.06, y: r.minY + r.height * 0.02)
+        let b = CGPoint(x: r.minX + r.width * 0.06, y: r.maxY - r.height * 0.02)
+        let c = CGPoint(x: r.maxX - r.width * 0.02, y: r.midY)
+        let rad = min(r.width, r.height) * 0.26
+        var p = Path()
+        p.move(to: CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2))
+        p.addArc(tangent1End: b, tangent2End: c, radius: rad)
+        p.addArc(tangent1End: c, tangent2End: a, radius: rad)
+        p.addArc(tangent1End: a, tangent2End: b, radius: rad)
+        p.closeSubpath()
+        return p
+    }
+}
+
+private struct CheckShape: Shape {
+    func path(in r: CGRect) -> Path {
+        var p = Path()
+        p.move(to: CGPoint(x: r.minX + r.width * 0.12, y: r.minY + r.height * 0.55))
+        p.addLine(to: CGPoint(x: r.minX + r.width * 0.42, y: r.maxY - r.height * 0.12))
+        p.addLine(to: CGPoint(x: r.maxX - r.width * 0.05, y: r.minY + r.height * 0.18))
+        return p
     }
 }
 

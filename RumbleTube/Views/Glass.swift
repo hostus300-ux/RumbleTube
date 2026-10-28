@@ -22,7 +22,7 @@ enum GlassUI {
         return false
     }
     @MainActor static var usesAccessory: Bool {
-        accessoryAvailable && LibraryStore.shared.data.prefs.liquidGlass && LibraryStore.shared.data.prefs.dockedMiniPlayer
+        false   // the app draws its own tab bar now, so the mini player always floats above it
     }
 }
 

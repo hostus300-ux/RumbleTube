@@ -691,3 +691,18 @@ final class ChannelTagTests: XCTestCase {
         XCTAssertTrue(lib.taggedChannels.isEmpty)
     }
 }
+
+final class FullDescriptionTests: XCTestCase {
+    func testJoinsShowMoreParagraphs() {
+        let html = """
+        <div class="container content media-description"><p class="media-description media-description--first">First part of the text.<button class="media-description--show-button">Show more</button></p>
+        <p class="media-description media-description--more">Second paragraph.</p>
+        <p class="media-description media-description--more">Third<br>line 2</p></div>
+        """
+        let info = WatchPageParser.parse(html)
+        XCTAssertTrue(info.description?.contains("First part") == true)
+        XCTAssertTrue(info.description?.contains("Second paragraph.") == true)
+        XCTAssertTrue(info.description?.contains("line 2") == true)
+        XCTAssertFalse(info.description?.contains("Show more") == true)
+    }
+}

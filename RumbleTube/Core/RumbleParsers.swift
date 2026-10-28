@@ -91,7 +91,17 @@ enum WatchPageParser {
         info.tipID = CreatorExtras.tipID(html)
         info.likes = first(html, #"<span data-js="rumbles_up_votes">\s*([\d,.KMB]+)"#)
         info.dislikes = first(html, #"<span data-js="rumbles_down_votes">\s*([\d,.KMB]+)"#)
-        if let d = first(html, #"class="[^"]*media-description[^"]*"[^>]*>([\s\S]*?)</(?:div|p)>\s*(?:<button|</div>|<div)"#) {
+        // The full description is split into a visible first paragraph and "show more" paragraphs
+        // (<p class="media-description media-description--first|--more">); JSON-LD cuts it at 200 characters.
+        let parts = matches(html, #"<p class="media-description[^"]*"[^>]*>([\s\S]*?)</p>"#)
+            // drop the page's own "Show more" / "Show less" buttons
+            .map { $0.replacingOccurrences(of: #"<button[\s\S]*?</button>"#, with: "", options: .regularExpression) }
+            .map { HTMLText.plain($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        if !parts.isEmpty {
+            let text = parts.joined(separator: "\n\n")
+            if text.count > (info.description?.count ?? 0) { info.description = text }
+        } else if let d = first(html, #"class="[^"]*media-description[^"]*"[^>]*>([\s\S]*?)</(?:div|p)>\s*(?:<button|</div>|<div)"#) {
             let text = HTMLText.plain(d)
             if text.count > (info.description?.count ?? 0) { info.description = text }
         }
