@@ -116,7 +116,7 @@ struct Chip: View {
         .frame(height: 32)
         .background(fill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay {
-            if isLive && selected { RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.white.opacity(0.85), lineWidth: 1.5) }
+            if isLive && selected { RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Color.white.opacity(0.85), lineWidth: 1.5) }
         }
         // Selected Live chip: a soft red ring that keeps easing outward, like a heartbeat.
         .background { if isLive && selected { LivePulse() } }
