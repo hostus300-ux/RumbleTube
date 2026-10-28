@@ -100,6 +100,7 @@ final class PlayerModel: ObservableObject {
             .sink { [weak self] status in
                 guard let self else { return }
                 self.isPlaying = status != .paused
+                ScreenAwake.mainPlaying = self.isPlaying
                 // Native controls (or PiP) started playback: make sure we hold the audio for background play.
                 if status == .playing, !AppAudio.ownsAudio, self.player.currentItem != nil { AppAudio.takeOver() }
                 // Paused for a moment (not just buffering): hand the audio back so other apps' sound isn't held muted
@@ -865,5 +866,16 @@ final class PlayerModel: ObservableObject {
             self.artwork = MPMediaItemArtwork(boundsSize: img.size) { _ in img }
             self.updateNowPlaying()
         }
+    }
+}
+
+
+/// Keeps the screen from dimming and locking while a video (main player or Shorts) is playing.
+@MainActor
+enum ScreenAwake {
+    static var mainPlaying = false { didSet { if mainPlaying != oldValue { update() } } }
+    static func update() {
+        let on = mainPlaying || ShortsModel.anyPlaying
+        if UIApplication.shared.isIdleTimerDisabled != on { UIApplication.shared.isIdleTimerDisabled = on }
     }
 }

@@ -443,7 +443,10 @@ struct MiniPlayer: View {
     @ObservedObject private var clock = PlayerClock.shared   // redraw as time moves
     @EnvironmentObject var player: PlayerModel
     @EnvironmentObject var library: LibraryStore
+    @ObservedObject private var tabBar = TabBarState.shared
     @State private var dragX: CGFloat = 0
+    /// Shrinks with the tab bar while scrolling so the two read as one set.
+    private var compact: Bool { library.data.prefs.minimizeTabBar && tabBar.compact }
 
     var body: some View {
         if let item = player.item, !player.expanded {
@@ -452,8 +455,8 @@ struct MiniPlayer: View {
                     bar(item)
                         // Kept inside the card's rounded bottom edge.
                         .overlay(alignment: .bottom) { progress.clipShape(Capsule()).padding(.horizontal, 22).padding(.bottom, 4) }
-                        .glassCard(22, interactive: true)
-                        .padding(.horizontal, 10).padding(.bottom, 6)
+                        .glassCard(compact ? 18 : 22, interactive: true)
+                        .padding(.horizontal, compact ? 48 : 10).padding(.bottom, 6)
                 } else {
                     VStack(spacing: 0) {
                         progress
@@ -463,6 +466,7 @@ struct MiniPlayer: View {
                 }
             }
             .miniPlayerSwipe(dragX: $dragX, player: player)
+            .animation(.spring(response: 0.38, dampingFraction: 0.82), value: compact)
         }
     }
 
@@ -476,21 +480,28 @@ struct MiniPlayer: View {
 
     private func bar(_ item: VideoItem) -> some View {
                 HStack(spacing: 10) {
-                    MiniPlayerArt(item: item).frame(width: 96, height: 54).clipShape(RoundedRectangle(cornerRadius: 6))
+                    MiniPlayerArt(item: item)
+                        .frame(width: compact ? 60 : 96, height: compact ? 34 : 54)
+                        .clipShape(RoundedRectangle(cornerRadius: compact ? 5 : 6))
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(player.detail?.title ?? item.title).font(.footnote.weight(.semibold)).lineLimit(1)
-                        Text(player.detail?.channel?.name ?? item.channelName ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                        MiniPlayerTime().font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                        Text(player.detail?.title ?? item.title).font(compact ? .caption.weight(.semibold) : .footnote.weight(.semibold)).lineLimit(1)
+                        Text(player.detail?.channel?.name ?? item.channelName ?? "").font(compact ? .caption2 : .caption).foregroundStyle(.secondary).lineLimit(1)
+                        if !compact {
+                            MiniPlayerTime().font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                        }
                     }
                     Spacer(minLength: 4)
                     Button { if player.miniPlayerArmed { player.togglePlay() } } label: {
-                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").font(.title3).frame(width: 40, height: 40)
+                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                            .font(compact ? .body : .title3).frame(width: compact ? 32 : 40, height: compact ? 32 : 40)
                     }
-                    Button { if player.miniPlayerArmed { player.close() } } label: {
-                        Image(systemName: "xmark").font(.body.weight(.semibold)).frame(width: 36, height: 40)
+                    if !compact {
+                        Button { if player.miniPlayerArmed { player.close() } } label: {
+                            Image(systemName: "xmark").font(.body.weight(.semibold)).frame(width: 36, height: 40)
+                        }
                     }
                 }
-                .padding(.horizontal, 10).padding(.vertical, 6)
+                .padding(.horizontal, compact ? 8 : 10).padding(.vertical, compact ? 4 : 6)
             .foregroundStyle(.primary)
             .contentShape(Rectangle())
             .onTapGesture { if player.miniPlayerArmed { player.expanded = true } }

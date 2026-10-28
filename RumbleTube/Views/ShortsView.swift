@@ -20,6 +20,8 @@ final class ShortsModel: ObservableObject {
     /// Pause every Shorts feed (main tab and followed-creators) when the main player starts.
     static func pauseAll() { instances.allObjects.forEach { $0.pauseForMainPlayer() } }
     /// A short is playing with sound right now (the main player mustn't hand the audio away then).
+    /// Any Shorts feed is on screen and playing (muted or not): keep the screen awake.
+    static var anyPlaying: Bool { instances.allObjects.contains { $0.active && !$0.paused } }
     static var anyPlayingAudibly: Bool {
         instances.allObjects.contains { m in m.active && !m.muted && !m.paused }
     }
@@ -27,7 +29,7 @@ final class ShortsModel: ObservableObject {
     @Published private(set) var items: [ShortItem] = []
     @Published var index = 0 { didSet { if index != oldValue { indexChanged(from: oldValue) } } }
     @Published private(set) var muted = false
-    @Published private(set) var paused = false
+    @Published private(set) var paused = false { didSet { ScreenAwake.update() } }
     @Published private(set) var loading = false
     @Published var error: String?
     /// Playback position lives in `ShortsClock` so only the progress bar redraws as it moves.
@@ -46,7 +48,7 @@ final class ShortsModel: ObservableObject {
 
     private var offset = 0
     private var hasMore = true
-    private(set) var active = false
+    private(set) var active = false { didSet { ScreenAwake.update() } }
     private var decidedMute = false
     private var players: [String: AVQueuePlayer] = [:]
     private var loopers: [String: AVPlayerLooper] = [:]

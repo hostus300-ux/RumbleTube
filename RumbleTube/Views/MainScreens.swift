@@ -118,9 +118,28 @@ struct Chip: View {
         .overlay {
             if isLive && selected { RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.white.opacity(0.85), lineWidth: 1.5) }
         }
+        // Selected Live chip: a soft red ring that keeps easing outward, like a heartbeat.
+        .background { if isLive && selected { LivePulse() } }
         .foregroundStyle(ink)
         .contentShape(RoundedRectangle(cornerRadius: 8))
         .animation(.easeInOut(duration: 0.15), value: selected)
+    }
+}
+
+/// A faint ring that grows and fades behind the selected Live chip (respects Reduce Motion).
+private struct LivePulse: View {
+    @State private var on = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var body: some View {
+        RoundedRectangle(cornerRadius: 9, style: .continuous)
+            .stroke(Color.rumbleRed, lineWidth: 2)
+            .scaleEffect(x: on ? 1.12 : 1, y: on ? 1.22 : 1)
+            .opacity(on ? 0 : 0.55)
+            .onAppear {
+                guard !reduceMotion else { return }
+                withAnimation(.easeOut(duration: 1.6).repeatForever(autoreverses: false)) { on = true }
+            }
+            .allowsHitTesting(false)
     }
 }
 
@@ -251,6 +270,7 @@ struct HomeScreen: View {
                 }
             }
             .padding(.horizontal, 12)
+            .padding(.vertical, 4)      // room so chip edges and the Live pulse aren't clipped
         }
     }
 
@@ -853,6 +873,7 @@ struct MyFeedScreen: View {
                 }
             }
             .padding(.horizontal, 12)
+            .padding(.vertical, 4)      // room so chip edges and the Live pulse aren't clipped
         }
     }
 
