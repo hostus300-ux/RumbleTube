@@ -236,7 +236,11 @@ struct AppHeader: ViewModifier {
                 icon(.search, "magnifyingglass", "Search")
                 if settings { icon(.settings, "gearshape", "Settings") }
             }
+            // The glass container draws only inside its own bounds; give the buttons room to swell
+            // when tapped (then take that room back so the layout doesn't move).
+            .padding(8)
             .glassGroup()
+            .padding(-8)
         }
         .padding(.horizontal, 16)
         .padding(.top, 2)
