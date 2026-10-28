@@ -451,7 +451,6 @@ struct CommentsScreen: View {
     @State private var toast: String?
     @State private var showAll = false
     @State private var showLogin = false
-    @State private var confirmDelete: RumbleComment?
     @FocusState private var composerFocused: Bool
     @Environment(\.dismiss) private var dismissComments
     /// Shown inside the player (no video header, timestamp taps just seek).
@@ -535,12 +534,6 @@ struct CommentsScreen: View {
         }
         .animation(.easeInOut, value: toast)
         .sheet(isPresented: $showLogin) { LoginView().environmentObject(account) }
-        .confirmationDialog("Delete this comment?", isPresented: Binding(get: { confirmDelete != nil }, set: { if !$0 { confirmDelete = nil } }),
-                            titleVisibility: .visible) {
-            Button("Delete", role: .destructive) {
-                if let c = confirmDelete { Task { await delete(c) } }
-            }
-        }
     }
 
     // MARK: pieces
@@ -566,7 +559,7 @@ struct CommentsScreen: View {
                        myVote: model.myVotes[c.id] ?? 0,
                        onVote: { v in Task { await vote(c, v) } },
                        onReply: { startReply(c) },
-                       onDelete: { confirmDelete = c },
+                       onDelete: { Task { await delete(c) } },
                        onRestore: { Task { await restore(c) } })
                 .id(c.id)
             if !c.replies.isEmpty {
@@ -709,6 +702,7 @@ struct CommentRow: View {
     var onReply: () -> Void
     var onDelete: () -> Void
     var onRestore: () -> Void = {}
+    @State private var confirmingDelete = false
     @ObservedObject private var library = LibraryStore.shared
     @ObservedObject private var mute = MuteUI.shared
 
@@ -767,7 +761,13 @@ struct CommentRow: View {
                     }
                     .foregroundStyle(myVote == -1 ? Color.red : .secondary)
                     if comment.canReply { Button("Reply", action: onReply).foregroundStyle(.secondary) }
-                    if comment.canDelete && !comment.isDeleted { Button("Delete", role: .destructive, action: onDelete) }
+                    if comment.canDelete && !comment.isDeleted {
+                        // The confirmation pops up from the Delete button itself.
+                        Button("Delete", role: .destructive) { confirmingDelete = true }
+                            .confirmationDialog("Delete this comment?", isPresented: $confirmingDelete, titleVisibility: .visible) {
+                                Button("Delete", role: .destructive, action: onDelete)
+                            }
+                    }
                     if isMine && comment.actions.contains("restore") { Button("Restore", action: onRestore) }
                     if !isMine {
                         Spacer(minLength: 0)
