@@ -385,23 +385,34 @@ final class ListingModel: ObservableObject {
     @Published var hasNext = true
     @Published var loadedOnce = false
     private var page = 0
-    private let loader: (Int) async throws -> ListingPage
+    /// Bumped by every reload so a page that was still loading can't land on top of the fresh list.
+    private var generation = 0
+    private let loader: (Int, Bool) async throws -> ListingPage
 
-    init(loader: @escaping (Int) async throws -> ListingPage) { self.loader = loader }
+    init(loader: @escaping (Int) async throws -> ListingPage) { self.loader = { p, _ in try await loader(p) } }
+    private init(pairLoader: @escaping (Int, Bool) async throws -> ListingPage) { self.loader = pairLoader }
+    /// `fresh` is true on a pull-to-refresh: skip any in-memory cache.
+    static func withRefresh(_ loader: @escaping (Int, Bool) async throws -> ListingPage) -> ListingModel {
+        ListingModel(pairLoader: loader)
+    }
 
     func reload() async {
+        generation += 1
         page = 0; hasNext = true; error = nil
         await loadMore(reset: true)
     }
 
     func loadMore(reset: Bool = false) async {
-        guard !loading, hasNext else { return }
+        // A refresh never waits behind (or gets skipped by) an auto "load more" that's in flight.
+        guard reset || (!loading && hasNext) else { return }
+        let gen = generation
         loading = true
         var cancelled = false
-        defer { loading = false; if !cancelled { loadedOnce = true } }
+        defer { if gen == generation { loading = false; if !cancelled { loadedOnce = true } } }
         do {
-            let next = page + 1
-            let result = try await loader(next)
+            let next = reset ? 1 : page + 1
+            let result = try await loader(next, reset)
+            guard gen == generation else { return }
             page = next
             if reset { items = [] }
             if header == nil { header = result.channel }
@@ -605,7 +616,9 @@ private struct RefreshFeedback: ViewModifier {
             .refreshable {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { phase = .refreshing }
                 let started = Date()
-                await action()
+                // Run detached from the gesture's task: SwiftUI cancels that task when the list redraws
+                // mid-refresh, which silently threw away the new data.
+                await Task { @MainActor in await action() }.value
                 // Keep the animation up long enough to be seen.
                 let left = 0.6 - Date().timeIntervalSince(started)
                 if left > 0 { try? await Task.sleep(nanoseconds: UInt64(left * 1_000_000_000)) }

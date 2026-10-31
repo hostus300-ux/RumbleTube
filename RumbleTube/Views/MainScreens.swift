@@ -641,7 +641,7 @@ final class MyFeedModel: ObservableObject {
             defer { loading = false }
             offset = 0
             channels = localFollows.map { FollowedChannel(ref: $0, lastActivity: nil, liveViewers: nil, followers: nil) }
-            let r = await RumbleService.shared.feed(localFollows)
+            let r = await RumbleService.shared.feed(localFollows, force: force)
             items = r.items
             liveByChannel = Dictionary(r.items.filter(\.isLive).compactMap { v in v.channelPath.map { ($0.lowercased(), v) } },
                                        uniquingKeysWith: { a, _ in a })

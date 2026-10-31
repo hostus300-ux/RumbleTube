@@ -12,7 +12,7 @@ struct ChannelView: View {
     init(channel: ChannelRef) {
         self.channel = channel
         let path = channel.path
-        _model = StateObject(wrappedValue: ListingModel { page in try await RumbleService.shared.channel(path, page: page) })
+        _model = StateObject(wrappedValue: ListingModel.withRefresh({ page, fresh in try await RumbleService.shared.channel(path, page: page, maxAge: fresh ? 0 : 600) }))
     }
 
     var body: some View {
